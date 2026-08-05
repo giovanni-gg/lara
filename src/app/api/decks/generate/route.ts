@@ -88,26 +88,32 @@ export async function POST(request: Request) {
 
   const shouldSpeak = withAudio && ttsAvailable();
 
-  const created = await Promise.all(
-    fresh.map(async (card) => {
-      const [audioUrl, sentenceAudioUrl] = shouldSpeak
-        ? await Promise.all([
-            trySynthesize({
-              text: card.target,
-              language: profile.targetLanguage,
-              voiceId: profile.voiceId,
-            }),
-            card.targetSentence
-              ? trySynthesize({
-                  text: card.targetSentence,
-                  language: profile.targetLanguage,
-                  voiceId: profile.voiceId,
-                })
-              : Promise.resolve(null),
-          ])
-        : [null, null];
+  // Sequential on purpose. Fanning these out hammers the ElevenLabs rate limit
+  // (the original Python script capped itself at 4 workers for the same
+  // reason), and the local `prisma dev` Postgres rejects parallel bursts.
+  const created: { id: string; target: string; source: string }[] = [];
 
-      return prisma.card.create({
+  for (const card of fresh) {
+    let audioUrl: string | null = null;
+    let sentenceAudioUrl: string | null = null;
+
+    if (shouldSpeak) {
+      audioUrl = await trySynthesize({
+        text: card.target,
+        language: profile.targetLanguage,
+        voiceId: profile.voiceId,
+      });
+      if (card.targetSentence) {
+        sentenceAudioUrl = await trySynthesize({
+          text: card.targetSentence,
+          language: profile.targetLanguage,
+          voiceId: profile.voiceId,
+        });
+      }
+    }
+
+    created.push(
+      await prisma.card.create({
         data: {
           userId: user.id,
           deckId: deck.id,
@@ -122,9 +128,9 @@ export async function POST(request: Request) {
           ...newCardState(),
         },
         select: { id: true, target: true, source: true },
-      });
-    }),
-  );
+      }),
+    );
+  }
 
   return NextResponse.json({
     deck: { id: deck.id, name: deck.name, emoji: deck.emoji },

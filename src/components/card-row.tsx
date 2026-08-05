@@ -1,4 +1,5 @@
 import { AudioButton } from "@/components/audio-button";
+import { CardChatButton } from "@/components/card-chat-button";
 import { Badge } from "@/components/ui";
 import { deleteCard, toggleCardSuspended } from "@/app/actions";
 import { relativeTime } from "@/lib/utils";
@@ -51,7 +52,8 @@ export function CardRow({ card }: { card: CardSummary }) {
             <p className="mt-2 text-xs text-muted">{card.notes}</p>
           ) : null}
 
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
+            <CardChatButton card={card} />
             <form
               action={async () => {
                 "use server";

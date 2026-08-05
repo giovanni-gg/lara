@@ -170,82 +170,84 @@ export type DeckStats = {
   learning: number;
 };
 
+/** Counts for one deck, in a single pass. See `statsByDeck` for why not four. */
 export async function deckStats(
   deckId: string,
   now = new Date(),
 ): Promise<DeckStats> {
-  const [total, due, fresh, learning] = await Promise.all([
-    prisma.card.count({ where: { deckId, suspended: false } }),
-    prisma.card.count({
-      where: {
-        deckId,
-        suspended: false,
-        state: { not: FsrsState.NEW },
-        due: { lte: now },
-      },
-    }),
-    prisma.card.count({
-      where: { deckId, suspended: false, state: FsrsState.NEW },
-    }),
-    prisma.card.count({
-      where: {
-        deckId,
-        suspended: false,
-        state: { in: [FsrsState.LEARNING, FsrsState.RELEARNING] },
-      },
-    }),
-  ]);
-  return { total, due, fresh, learning };
+  const [row] = await prisma.$queryRaw<
+    { total: number; due: number; fresh: number; learning: number }[]
+  >`
+    SELECT
+      count(*)::int AS total,
+      count(*) FILTER (
+        WHERE c.state <> 'NEW'::"FsrsState" AND c.due <= ${now}
+      )::int AS due,
+      count(*) FILTER (WHERE c.state = 'NEW'::"FsrsState")::int AS fresh,
+      count(*) FILTER (
+        WHERE c.state IN ('LEARNING'::"FsrsState", 'RELEARNING'::"FsrsState")
+      )::int AS learning
+    FROM "Card" c
+    WHERE c."deckId" = ${deckId} AND c.suspended = false
+  `;
+
+  return {
+    total: row?.total ?? 0,
+    due: row?.due ?? 0,
+    fresh: row?.fresh ?? 0,
+    learning: row?.learning ?? 0,
+  };
 }
 
 /**
- * Stats for every deck in a profile, in three grouped queries rather than four
- * per deck — a per-deck loop exhausts the connection pool once you have a few
- * dozen decks.
+ * Stats for every deck in a profile, as a single query.
+ *
+ * Conditional aggregates (`count(*) FILTER (...)`) produce all four buckets in
+ * one pass. Both obvious alternatives are worse: four counts per deck exhausts
+ * the connection pool once you have a few dozen decks, and four *concurrent*
+ * grouped queries is rejected outright by the local `prisma dev` Postgres,
+ * which does not tolerate parallel aggregate queries.
  */
 export async function statsByDeck(
   profileId: string,
   now = new Date(),
 ): Promise<Map<string, DeckStats>> {
-  const base = { suspended: false, deck: { profileId } };
+  const rows = await prisma.$queryRaw<
+    {
+      deckId: string;
+      total: number;
+      due: number;
+      fresh: number;
+      learning: number;
+    }[]
+  >`
+    SELECT
+      c."deckId" AS "deckId",
+      count(*)::int AS total,
+      count(*) FILTER (
+        WHERE c.state <> 'NEW'::"FsrsState" AND c.due <= ${now}
+      )::int AS due,
+      count(*) FILTER (WHERE c.state = 'NEW'::"FsrsState")::int AS fresh,
+      count(*) FILTER (
+        WHERE c.state IN ('LEARNING'::"FsrsState", 'RELEARNING'::"FsrsState")
+      )::int AS learning
+    FROM "Card" c
+    JOIN "Deck" d ON d.id = c."deckId"
+    WHERE d."profileId" = ${profileId} AND c.suspended = false
+    GROUP BY c."deckId"
+  `;
 
-  const [totals, dues, fresh, learning] = await Promise.all([
-    prisma.card.groupBy({ by: ["deckId"], where: base, _count: true }),
-    prisma.card.groupBy({
-      by: ["deckId"],
-      where: { ...base, state: { not: FsrsState.NEW }, due: { lte: now } },
-      _count: true,
-    }),
-    prisma.card.groupBy({
-      by: ["deckId"],
-      where: { ...base, state: FsrsState.NEW },
-      _count: true,
-    }),
-    prisma.card.groupBy({
-      by: ["deckId"],
-      where: {
-        ...base,
-        state: { in: [FsrsState.LEARNING, FsrsState.RELEARNING] },
+  return new Map(
+    rows.map((row) => [
+      row.deckId,
+      {
+        total: row.total,
+        due: row.due,
+        fresh: row.fresh,
+        learning: row.learning,
       },
-      _count: true,
-    }),
-  ]);
-
-  const stats = new Map<string, DeckStats>();
-  const bucket = (deckId: string) => {
-    const existing = stats.get(deckId);
-    if (existing) return existing;
-    const created = { total: 0, due: 0, fresh: 0, learning: 0 };
-    stats.set(deckId, created);
-    return created;
-  };
-
-  for (const row of totals) bucket(row.deckId).total = row._count;
-  for (const row of dues) bucket(row.deckId).due = row._count;
-  for (const row of fresh) bucket(row.deckId).fresh = row._count;
-  for (const row of learning) bucket(row.deckId).learning = row._count;
-
-  return stats;
+    ]),
+  );
 }
 
 export const EMPTY_DECK_STATS: DeckStats = {
@@ -255,22 +257,39 @@ export const EMPTY_DECK_STATS: DeckStats = {
   learning: 0,
 };
 
+/**
+ * Profile-wide counts for the Today screen. Card buckets come from one pass of
+ * conditional aggregates; the review tally is a second, sequential query
+ * (different table). Deliberately not `Promise.all` — see `statsByDeck`.
+ */
 export async function profileStats(profileId: string, now = new Date()) {
-  const base = { deck: { profileId }, suspended: false };
-  const [total, due, fresh, reviewedToday] = await Promise.all([
-    prisma.card.count({ where: base }),
-    prisma.card.count({
-      where: { ...base, state: { not: FsrsState.NEW }, due: { lte: now } },
-    }),
-    prisma.card.count({ where: { ...base, state: FsrsState.NEW } }),
-    prisma.review.count({
-      where: {
-        card: { deck: { profileId } },
-        reviewedAt: { gte: startOfDay(now) },
-      },
-    }),
-  ]);
-  return { total, due, fresh, reviewedToday };
+  const [cards] = await prisma.$queryRaw<
+    { total: number; due: number; fresh: number }[]
+  >`
+    SELECT
+      count(*)::int AS total,
+      count(*) FILTER (
+        WHERE c.state <> 'NEW'::"FsrsState" AND c.due <= ${now}
+      )::int AS due,
+      count(*) FILTER (WHERE c.state = 'NEW'::"FsrsState")::int AS fresh
+    FROM "Card" c
+    JOIN "Deck" d ON d.id = c."deckId"
+    WHERE d."profileId" = ${profileId} AND c.suspended = false
+  `;
+
+  const reviewedToday = await prisma.review.count({
+    where: {
+      card: { deck: { profileId } },
+      reviewedAt: { gte: startOfDay(now) },
+    },
+  });
+
+  return {
+    total: cards?.total ?? 0,
+    due: cards?.due ?? 0,
+    fresh: cards?.fresh ?? 0,
+    reviewedToday,
+  };
 }
 
 /**

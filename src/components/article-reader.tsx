@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, Languages, Loader2 } from "lucide-react";
+import { Check, Languages, Loader2, Volume2, VolumeX } from "lucide-react";
 import { markArticleRead, saveWordFromArticle } from "@/app/actions";
 import { AudioButton } from "@/components/audio-button";
 import { Badge, Button } from "@/components/ui";
@@ -13,6 +13,7 @@ type Segment = {
   index: number;
   target: string;
   translation: string;
+  audioUrl: string | null;
 };
 
 type Article = {
@@ -81,7 +82,7 @@ export function ArticleReader({ article }: { article: Article }) {
         </div>
       </header>
 
-      {/* Body: tap a sentence to see its translation. */}
+      {/* Body: tap a sentence to see its translation, with audio per sentence. */}
       <div className="space-y-1">
         {article.segments.map((segment) => {
           const open = showAll || revealed.has(segment.id);
@@ -101,9 +102,12 @@ export function ArticleReader({ article }: { article: Article }) {
                 </span>
               </button>
               {open ? (
-                <p className="px-2 pb-2 text-sm text-muted">
-                  {segment.translation}
-                </p>
+                <div className="flex items-start gap-2 px-2 pb-2">
+                  <p className="flex-1 text-sm text-muted">
+                    {segment.translation}
+                  </p>
+                  <SentenceAudio segment={segment} />
+                </div>
               ) : null}
             </div>
           );
@@ -153,6 +157,63 @@ export function ArticleReader({ article }: { article: Article }) {
         )}
       </div>
     </article>
+  );
+}
+
+/**
+ * Sentence-level audio. Synthesised the first time it's requested rather than
+ * up front — a 2,000-word story would otherwise mean 150 TTS calls at write
+ * time, most of which are never played.
+ */
+function SentenceAudio({ segment }: { segment: Segment }) {
+  const [audioUrl, setAudioUrl] = useState(segment.audioUrl);
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+
+  if (audioUrl) {
+    return (
+      <AudioButton
+        src={audioUrl}
+        size="sm"
+        autoPlay
+        label="Replay this sentence"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={state === "loading"}
+      onClick={async () => {
+        setState("loading");
+        try {
+          const response = await fetch(`/api/segments/${segment.id}/audio`, {
+            method: "POST",
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            setState("error");
+            return;
+          }
+          // Setting the URL swaps in AudioButton with autoPlay, so the tap that
+          // requested the audio also plays it.
+          setAudioUrl(data.audioUrl);
+        } catch {
+          setState("error");
+        }
+      }}
+      aria-label="Hear this sentence"
+      title={state === "error" ? "Audio unavailable" : "Hear this sentence"}
+      className="flex size-8 shrink-0 items-center justify-center rounded-full border border-line text-muted active:border-accent/60 disabled:opacity-50"
+    >
+      {state === "loading" ? (
+        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+      ) : state === "error" ? (
+        <VolumeX className="size-3.5" aria-hidden />
+      ) : (
+        <Volume2 className="size-3.5" aria-hidden />
+      )}
+    </button>
   );
 }
 

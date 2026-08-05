@@ -20,9 +20,24 @@ See `README.md` for what it is and how to run it.
   and the FSRS↔Prisma enum mapping in one place.
 - **`src/lib/session.ts` is the only file that knows who the user is.** Real auth
   replaces that file and nothing else. Don't read the user identity elsewhere.
-- **Never write a per-deck stats loop.** `deckStats` is for one deck; for a list
-  use `statsByDeck`, which does it in grouped queries. `prisma dev` allows 10
-  connections, and 27 decks × 4 counts exhausts the pool and 500s the page.
+- **Never run aggregate queries concurrently.** The local `prisma dev` Postgres
+  rejects parallel `count`/`groupBy`/`aggregate` with `ConnectionClosed` (P1017)
+  — sequentially they're fine, so this looks like a code bug and isn't. All three
+  stats functions therefore use one `$queryRaw` with `count(*) FILTER (...)`
+  instead. Don't "simplify" them back into `Promise.all` of ORM counts.
+  Enum comparisons in that raw SQL need a cast: `c.state <> 'NEW'::"FsrsState"`.
+- **Never write a per-deck stats loop either.** `deckStats` is for one deck; for a
+  list use `statsByDeck`. 27 decks × 4 counts exhausts the 10-connection pool.
+- **Restart `next dev` after `prisma generate` adds a model.** The dev server
+  caches the old client module, and new accessors come back `undefined` with a
+  confusing "Cannot read properties of undefined" rather than a clear error.
+  Note `TaskStop`/Ctrl-C on the npm wrapper can leave the `next dev` child alive
+  holding port 3000 — check the PID it reports and kill that.
+- **`CardChat` needs `key={card.id}` at every call site.** It resets its thread by
+  remounting; resetting via `useEffect` trips `react-hooks/set-state-in-effect`.
+- **Stories and articles are one model** (`Article.kind`), one reader, two writing
+  briefs. Don't fork a parallel Story model — the reader, segments, audio, and
+  save-word all get reused.
 - **Reviews and new cards have independent daily caps.** Use `sessionSize` to
   report how many cards a session will serve — `min(due + fresh, reviewLimit +
   newLimit)` is wrong and over-promises.

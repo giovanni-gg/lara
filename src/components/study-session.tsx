@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, X } from "lucide-react";
+import { Check, MessageCircleQuestion, X } from "lucide-react";
 import { AudioButton } from "@/components/audio-button";
+import { CardChat } from "@/components/card-chat";
 import { Button, ButtonLink } from "@/components/ui";
 import { RATING_LABELS, type RatingValue } from "@/lib/srs";
 import type { QueueCard } from "@/lib/study";
@@ -32,6 +33,7 @@ export function StudySession({
   const [answered, setAnswered] = useState(0);
   const [again, setAgain] = useState(0);
   const [pending, setPending] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   // Stamped in an effect rather than during render — reading the clock while
   // rendering is impure and React lints against it.
   const shownAt = useRef(0);
@@ -69,8 +71,10 @@ export function StudySession({
     [card, pending],
   );
 
-  // Desktop keyboard shortcuts: space reveals, 1-4 grades.
+  // Desktop keyboard shortcuts: space reveals, 1-4 grades. Suspended while the
+  // chat sheet is open, or typing a question would grade the card.
   useEffect(() => {
+    if (chatOpen) return;
     function onKey(event: KeyboardEvent) {
       if (done) return;
       if (event.key === " " || event.key === "Enter") {
@@ -86,7 +90,7 @@ export function StudySession({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [answer, revealed, done]);
+  }, [answer, revealed, done, chatOpen]);
 
   if (done) {
     const recalled = answered - again;
@@ -150,6 +154,15 @@ export function StudySession({
         <span className="w-12 text-right text-xs tabular-nums text-muted">
           {index + 1}/{cards.length}
         </span>
+        {/* Always reachable, never in the way, and it doesn't spoil the answer. */}
+        <button
+          type="button"
+          onClick={() => setChatOpen(true)}
+          aria-label={`Ask about ${card.target}`}
+          className="-mr-1 flex size-9 shrink-0 items-center justify-center rounded-full text-muted active:bg-raised"
+        >
+          <MessageCircleQuestion className="size-5" aria-hidden />
+        </button>
       </div>
 
       <p className="pb-3 text-center text-xs uppercase tracking-wide text-muted">
@@ -217,6 +230,19 @@ export function StudySession({
         </div>
       </button>
 
+      {/* The natural moment to ask is right after seeing the answer, so repeat
+          the affordance here as a labelled target rather than a bare icon. */}
+      {revealed ? (
+        <button
+          type="button"
+          onClick={() => setChatOpen(true)}
+          className="mx-auto mb-2 inline-flex items-center gap-2 rounded-full border border-line px-4 py-2 text-sm text-muted active:border-accent/60"
+        >
+          <MessageCircleQuestion className="size-4" aria-hidden />
+          Ask about this card
+        </button>
+      ) : null}
+
       {/* Controls */}
       <div className="sticky bottom-0 bg-background/95 pb-safe pt-3 backdrop-blur">
         {revealed ? (
@@ -245,6 +271,14 @@ export function StudySession({
           </Button>
         )}
       </div>
+
+      {/* key remounts the sheet per card, clearing the previous thread. */}
+      <CardChat
+        key={card.id}
+        card={card}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+      />
     </div>
   );
 }

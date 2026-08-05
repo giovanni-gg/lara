@@ -10,5 +10,10 @@ export default defineConfig({
   },
   datasource: {
     url: process.env["DATABASE_URL"],
+    // `prisma dev` serves the main database as `template1`, which Prisma cannot
+    // clone into an auto-created shadow database — it collides with the types
+    // already there. Point migrations at the second server `prisma dev` starts
+    // for exactly this purpose.
+    shadowDatabaseUrl: process.env["SHADOW_DATABASE_URL"],
   },
 });

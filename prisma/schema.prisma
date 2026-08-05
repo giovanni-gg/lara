@@ -27,6 +27,7 @@ model User {
   cards    Card[]
   reviews  Review[]
   articles Article[]
+  messages CardChatMessage[]
 }
 
 /// One per language a user is learning. Holds the level used to pitch
@@ -129,13 +130,38 @@ model Card {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  deck    Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
-  reviews Review[]
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deck     Deck             @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  reviews  Review[]
+  messages CardChatMessage[]
 
   @@index([deckId, due])
   @@index([userId, due])
   @@index([deckId, state])
+}
+
+/// A question the learner asked about one specific card, and the answer.
+/// Persisted so that a conjugation table or usage explanation you asked for
+/// once is still there the next time the card comes up.
+model CardChatMessage {
+  id     String @id @default(cuid())
+  cardId String
+  userId String
+
+  role    ChatRole
+  content String
+
+  createdAt DateTime @default(now())
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, createdAt])
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
 }
 
 enum CardType {
@@ -199,6 +225,9 @@ model Article {
   /// Level the text was written for — normally one step above the profile.
   level           CefrLevel
   status          ArticleStatus @default(DRAFT)
+  /// Narrative fiction vs. non-fiction piece. Changes how it is written and
+  /// where it is listed, but both use the same reader.
+  kind            ContentKind   @default(ARTICLE)
 
   /// Full text in the target language, kept alongside the per-sentence
   /// segments so the reader can render prose without stitching.
@@ -222,13 +251,18 @@ model Article {
   segments ArticleSegment[]
 
   @@index([userId, createdAt])
-  @@index([profileId])
+  @@index([profileId, kind])
 }
 
 enum ArticleStatus {
   DRAFT
   READY
   FAILED
+}
+
+enum ContentKind {
+  ARTICLE
+  STORY
 }
 
 /// One sentence of an article. Powers tap-to-translate and sentence-level

@@ -4,7 +4,8 @@ A language-learning web app for the phone. Three things:
 
 1. **Flashcards** on a real spaced-repetition scheduler (FSRS-6, the algorithm behind Anki's modern scheduler).
 2. **Prompt-to-deck** — describe what you want to learn and get cards, examples, and audio, without touching a computer.
-3. **Immersion reading** — articles written one CEFR level above you, built out of words you already know plus a controlled handful of new ones.
+3. **Immersion reading** — stories and articles written one CEFR level above you, built out of words you already know plus a controlled handful of new ones.
+4. **A tutor on every card** — ask about a conjugation, a word order, a false friend, mid-review, without leaving the session. Threads persist per card.
 
 It grew out of [`anki_creator`](../personal-projects/anki_creator), a Python script that generated Anki CSVs. This replaces the whole loop: no CSV, no import step, no desktop.
 
@@ -37,8 +38,8 @@ Nothing is required to run the app, but the interesting parts need credentials:
 
 | Variable | Unlocks | Without it |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Card and article generation | Generation returns 503; manual cards still work |
-| `ELEVENLABS_API_KEY` | Audio on cards and articles | Cards are created silently, no audio |
+| `ANTHROPIC_API_KEY` | Deck, story, and article generation; the card tutor | Those return a clear 503; studying and manual cards still work |
+| `ELEVENLABS_API_KEY` | Audio on cards, stories, and articles | Content is created silently, no audio |
 
 Voice IDs for Swedish and Brazilian Portuguese carried over from `anki_creator`
 and live in `src/lib/languages.ts`.
@@ -88,16 +89,19 @@ src/lib/
   srs.ts                   FSRS wrapper — the only file that imports ts-fsrs
   study.ts                 Queue building, review submission, deck/profile stats
   ai/cards.ts              Prompt → flashcards
+  ai/stories.ts            Prompt + length → narrative fiction at i+1
   ai/articles.ts           Topic → level-appropriate article, split by sentence
+  ai/tutor.ts              The per-card tutor (streaming)
+  tutor-prompts.ts         Suggested questions; client-safe, no AI SDK import
   tts.ts                   ElevenLabs, content-hash cached
   media.ts                 Local file storage; swap for Blob in production
   session.ts               Current user — the single seam real auth goes through
 src/app/
   page.tsx                 Today: counts, study button, prompt-to-deck
-  study/                   The review session
+  study/                   The review session, with the card tutor sheet
   decks/                   Deck list, deck detail, manual card entry
-  articles/                Library and reader
-  api/                     reviews, decks/generate, articles/generate, media
+  articles/                Stories + articles library and reader
+  api/                     reviews, */generate, cards/[id]/chat, segments audio
 scripts/import-anki-csv.ts anki_creator CSV importer
 ```
 
