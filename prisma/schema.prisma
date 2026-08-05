@@ -1,0 +1,249 @@
+// Lara — language learning app
+// Local dev runs against `prisma dev` (local Postgres); production points
+// DATABASE_URL at Neon. Same provider, so nothing else changes.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Users & language profiles
+// ---------------------------------------------------------------------------
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profiles LanguageProfile[]
+  decks    Deck[]
+  cards    Card[]
+  reviews  Review[]
+  articles Article[]
+}
+
+/// One per language a user is learning. Holds the level used to pitch
+/// AI-generated immersion content one notch above the learner (i+1).
+model LanguageProfile {
+  id             String    @id @default(cuid())
+  userId         String
+  targetLanguage String // ISO 639-1, e.g. "sv"
+  sourceLanguage String    @default("en")
+  level          CefrLevel @default(A1)
+
+  // Daily study caps, mirroring Anki's deck options
+  dailyNewLimit    Int @default(20)
+  dailyReviewLimit Int @default(200)
+
+  // ElevenLabs voice for this language; falls back to the configured default
+  voiceId String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  decks    Deck[]
+  articles Article[]
+
+  @@unique([userId, targetLanguage])
+  @@index([userId])
+}
+
+enum CefrLevel {
+  A1
+  A2
+  B1
+  B2
+  C1
+  C2
+}
+
+// ---------------------------------------------------------------------------
+// Decks & cards
+// ---------------------------------------------------------------------------
+
+model Deck {
+  id          String  @id @default(cuid())
+  userId      String
+  profileId   String
+  name        String
+  description String?
+  emoji       String?
+  sortOrder   Int     @default(0)
+
+  /// Set when this deck was produced by an AI prompt, so it can be extended
+  /// later with the same intent.
+  sourcePrompt String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile LanguageProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  cards   Card[]
+
+  @@index([userId])
+  @@index([profileId])
+}
+
+model Card {
+  id     String @id @default(cuid())
+  userId String
+  deckId String
+
+  // ---- Content ----
+  target         String // the word/phrase in the target language
+  source         String // its translation
+  targetSentence String? // example sentence in the target language
+  sourceSentence String? // that sentence translated
+  notes          String? // grammar / usage note
+  cardType       CardType @default(RECOGNITION)
+  tags           String[] @default([])
+
+  // ---- Media ----
+  imageUrl         String?
+  audioUrl         String? // audio for `target`
+  sentenceAudioUrl String? // audio for `targetSentence`
+
+  // ---- FSRS scheduling state (see src/lib/srs) ----
+  state         FsrsState @default(NEW)
+  due           DateTime  @default(now())
+  stability     Float     @default(0)
+  difficulty    Float     @default(0)
+  elapsedDays   Int       @default(0)
+  scheduledDays Int       @default(0)
+  reps          Int       @default(0)
+  lapses        Int       @default(0)
+  learningSteps Int       @default(0)
+  lastReview    DateTime?
+
+  suspended Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deck    Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  reviews Review[]
+
+  @@index([deckId, due])
+  @@index([userId, due])
+  @@index([deckId, state])
+}
+
+enum CardType {
+  /// See target -> recall meaning
+  RECOGNITION
+  /// See source -> produce target
+  PRODUCTION
+  /// Sentence with the target word blanked out
+  CLOZE
+  /// Type the target from memory
+  TYPING
+}
+
+enum FsrsState {
+  NEW
+  LEARNING
+  REVIEW
+  RELEARNING
+}
+
+/// Immutable log of every answer. Keeping the full history is what makes it
+/// possible to re-optimise FSRS parameters against real performance later.
+model Review {
+  id     String @id @default(cuid())
+  cardId String
+  userId String
+
+  rating Int // 1 = Again, 2 = Hard, 3 = Good, 4 = Easy
+
+  // Card state snapshot produced by this review
+  state           FsrsState
+  due             DateTime
+  stability       Float
+  difficulty      Float
+  elapsedDays     Int
+  lastElapsedDays Int
+  scheduledDays   Int
+
+  durationMs Int? // time spent on the card
+  reviewedAt DateTime @default(now())
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, reviewedAt])
+  @@index([cardId, reviewedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Immersion articles
+// ---------------------------------------------------------------------------
+
+model Article {
+  id        String @id @default(cuid())
+  userId    String
+  profileId String
+
+  title           String
+  titleTranslated String?
+  topic           String?
+  /// Level the text was written for — normally one step above the profile.
+  level           CefrLevel
+  status          ArticleStatus @default(DRAFT)
+
+  /// Full text in the target language, kept alongside the per-sentence
+  /// segments so the reader can render prose without stitching.
+  body String
+
+  audioUrl  String?
+  wordCount Int     @default(0)
+
+  /// Words pulled from the learner's existing cards that this text reuses.
+  reusedVocabulary String[] @default([])
+  /// New words deliberately introduced by this text (the "+1").
+  newVocabulary    String[] @default([])
+
+  sourcePrompt String?
+  readAt       DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile  LanguageProfile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  segments ArticleSegment[]
+
+  @@index([userId, createdAt])
+  @@index([profileId])
+}
+
+enum ArticleStatus {
+  DRAFT
+  READY
+  FAILED
+}
+
+/// One sentence of an article. Powers tap-to-translate and sentence-level
+/// audio in the reader.
+model ArticleSegment {
+  id        String @id @default(cuid())
+  articleId String
+  index     Int
+
+  target      String
+  translation String
+  audioUrl    String?
+
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, index])
+  @@index([articleId])
+}
