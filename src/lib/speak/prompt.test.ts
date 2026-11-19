@@ -97,9 +97,9 @@ describe.each(LEARNERS)("Speak prompt for $name ($target from $source)", (learne
     expect(overrides.agent.language).toBe(learner.targetLanguage);
     expect(overrides.agent.prompt.prompt).toBe(text);
     expect(overrides.agent.firstMessage).toBe(greeting(learner.targetLanguage));
-    expect(overrides.tts).toEqual({ voiceId: "voice-123", speed: 0.9 });
+    expect(overrides.tts).toEqual({ voiceId: "voice-123", speed: 0.95 });
     // No voice: leave the agent's default rather than send an empty override.
-    expect(speakOverrides({ ...base, voiceId: null }).tts).toEqual({ speed: 0.9 });
+    expect(speakOverrides({ ...base, voiceId: null }).tts).toEqual({ speed: 0.95 });
   });
 });
 
