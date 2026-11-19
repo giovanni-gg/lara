@@ -40,9 +40,37 @@ Nothing is required to run the app, but the interesting parts need credentials:
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Deck and story generation; the card tutor | Those return a clear 503; studying and manual cards still work |
 | `ELEVENLABS_API_KEY` | Audio on cards and stories | Content is created silently, no audio |
+| `ELEVENLABS_AGENT_ID` | Speak, with `ELEVENLABS_API_KEY` (see below) | The Speak tab says it isn't set up; `/api/speak/session` answers 503 |
 
 Voice IDs for Swedish and Brazilian Portuguese carried over from `anki_creator`
 and live in `src/lib/languages.ts`.
+
+---
+
+## Speak
+
+A voice conversation with a tutor, on the ElevenLabs Agents platform over
+WebRTC. You talk in the language you're learning, drop into your own whenever
+you're stuck (it explains briefly, then carries on), and meaningful mistakes
+show up as correction cards in the live transcript.
+
+```bash
+npm run speak:setup              # creates/updates the "Lara tutor" agent; prints ELEVENLABS_AGENT_ID
+npm run speak:setup -- --dry-run # print the config only
+```
+
+- One generic agent (`scripts/elevenlabs/setup-agent.ts`, idempotent): Gemini
+  3.5 Flash at minimal reasoning, Flash v2.5 TTS, patient turn-taking with
+  speculative turns, English/Swedish/Portuguese with language detection,
+  token-only auth, and the `show_correction` client tool (non-blocking).
+- Everything about the learner travels per conversation as overrides built
+  by `src/lib/speak/prompt.ts` (prompt, opening line, language, voice, speed),
+  returned with a WebRTC token by `POST /api/speak/session`. The API key never
+  reaches the browser. Re-run the setup after changing the agent config.
+- Finished conversations (transcript + corrections) are saved to
+  `SpeakConversation`, for a later "add correction as a card".
+- Language switching happens between turns, not mid-sentence: the SDKs don't
+  do code-switching speech recognition yet, so the prompt copes with mixed input.
 
 ---
 
@@ -136,6 +164,8 @@ src/lib/
   stories.ts               Gathers the vocabulary, saves the story, speaks its sentences
   ai/tutor.ts              The per-card tutor (streaming)
   tutor-prompts.ts         Suggested questions; client-safe, no AI SDK import
+  speak/prompt.ts          The Speak tutor's prompt and session overrides (pure)
+  speak/session.ts         Speak deck words and the ElevenLabs token mint
   tts.ts                   ElevenLabs, content-hash cached
   media.ts                 Local file storage; swap for Blob in production
   session.ts               Current user — the single seam real auth goes through
@@ -144,6 +174,7 @@ src/app/
   study/                   The review session, with the card tutor sheet
   decks/                   Deck list, deck detail, manual card entry
   articles/                Listen & Read: story library, new-story form, reader
+  speak/                   Speak: voice conversation with the tutor
   api/                     reviews, */generate, cards/[id]/chat, segments audio
 scripts/import-anki.ts     Anki collection importer CLI (decks, cards, media, history)
 scripts/anki/              The import itself (import.ts) and its pure field parsing (parse.ts)

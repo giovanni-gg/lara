@@ -22,12 +22,13 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  profiles LanguageProfile[]
-  decks    Deck[]
-  cards    Card[]
-  reviews  Review[]
-  articles Article[]
-  messages CardChatMessage[]
+  profiles           LanguageProfile[]
+  decks              Deck[]
+  cards              Card[]
+  reviews            Review[]
+  articles           Article[]
+  messages           CardChatMessage[]
+  speakConversations SpeakConversation[]
 }
 
 /// One per language a user is learning. Holds the level used to pitch
@@ -50,9 +51,10 @@ model LanguageProfile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  decks    Deck[]
-  articles Article[]
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  decks              Deck[]
+  articles           Article[]
+  speakConversations SpeakConversation[]
 
   @@unique([userId, targetLanguage])
   @@index([userId])
@@ -109,13 +111,15 @@ model Deck {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  profile  LanguageProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  parent   Deck?           @relation("DeckTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children Deck[]          @relation("DeckTree")
-  cards    Card[]
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile            LanguageProfile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  parent             Deck?               @relation("DeckTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children           Deck[]              @relation("DeckTree")
+  cards              Card[]
   /// Stories written around this deck's vocabulary.
-  articles Article[]
+  articles           Article[]
+  /// Speak conversations that wove in this deck's words.
+  speakConversations SpeakConversation[]
 
   @@index([userId])
   @@index([profileId])
@@ -334,4 +338,34 @@ model ArticleSegment {
 
   @@unique([articleId, index])
   @@index([articleId])
+}
+
+// ---------------------------------------------------------------------------
+// Speak: voice conversations with the tutor
+// ---------------------------------------------------------------------------
+
+/// One finished Speak conversation: what was said and the corrections shown.
+/// Kept so a later version can turn a correction into a card.
+model SpeakConversation {
+  id        String  @id @default(cuid())
+  userId    String
+  profileId String
+  /// Deck whose words were woven in; kept (as null) if the deck is deleted.
+  deckId    String?
+  topic     String
+
+  /// ElevenLabs' id for the call, to find it on their side.
+  externalId  String?
+  /// [{ role: "user" | "agent", text }], in order.
+  transcript  Json
+  /// [{ said, better, explanation }], in order.
+  corrections Json
+
+  createdAt DateTime @default(now())
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile LanguageProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  deck    Deck?           @relation(fields: [deckId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, createdAt])
 }

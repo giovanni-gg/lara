@@ -26,11 +26,13 @@
     "media:upload": "tsx scripts/upload-media.ts",
     "db:copy": "tsx scripts/copy-db.ts",
     "media:optimize": "tsx scripts/optimize-images.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "speak:setup": "tsx scripts/elevenlabs/setup-agent.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.30",
     "@ai-sdk/react": "^4.0.55",
+    "@elevenlabs/react": "1.21.1",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "@vercel/blob": "2.8.2",
@@ -74,5 +76,8 @@
     "esbuild": true,
     "prisma": true,
     "unrs-resolver": true
+  },
+  "overrides": {
+    "livekit-client": "2.23.0"
   }
 }

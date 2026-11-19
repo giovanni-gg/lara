@@ -74,6 +74,12 @@ See `README.md` for what it is and how to run it.
 - **Prisma 7:** client is generated to `src/generated/prisma` (gitignored) and
   needs a driver adapter. `import { PrismaClient } from "@/generated/prisma/client"`,
   never from `@prisma/client`.
+- **Speak's agent is generic; the learner arrives as overrides.** Prompt,
+  first message, language and voice are built per session in
+  `src/lib/speak/prompt.ts` and only apply because the agent allows them
+  (`npm run speak:setup`). Change the agent there, never in the ElevenLabs
+  dashboard, and re-run the script. Its primary language must not be English:
+  the platform then insists on the English-only Flash v2 TTS.
 - **TTS is content-hash cached** in `.media/`. Re-synthesising identical text is
   free, so don't add your own caching layer around it.
 - **A card's facing is its own `cardType`, not the deck's.** RECOGNITION shows
