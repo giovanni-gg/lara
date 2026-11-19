@@ -13,6 +13,7 @@ import { CardRow } from "@/components/card-row";
 import { DeckTree } from "@/components/deck-tree";
 import { Button, ButtonLink, Panel, Screen, Stat } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { ConfirmSubmit } from "@/components/confirm-submit";
 
 const CARD_LIMIT = 200;
 
@@ -184,39 +185,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
         </ButtonLink>
       </section>
 
-      {cards.length > 0 || subdecks.length === 0 ? (
-        <section className="mt-6">
-          <div className="mb-2 flex items-baseline justify-between">
-            <h2 className="font-display text-base font-semibold">
-              Cards
-              {subdecks.length > 0 ? (
-                <span className="ml-1 text-xs font-normal text-muted">in this deck</span>
-              ) : null}
-            </h2>
-            <span className="text-xs text-muted tabular-nums">
-              {ownCount > cards.length ? `first ${cards.length} of ${ownCount}` : ownCount}
-            </span>
-          </div>
-
-          {cards.length === 0 ? (
-            <Panel className="text-center text-sm text-muted">
-              This deck is empty. Generate cards above to fill it.
-            </Panel>
-          ) : (
-            <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
-              {cards.map((card) => (
-                <CardRow
-                  key={card.id}
-                  card={card}
-                  languages={{ target: target.code, source: source.code }}
-                />
-              ))}
-            </ul>
-          )}
-        </section>
-      ) : null}
-
-      <section className="mt-6 mb-4">
+      <section className="mt-6">
         <h2 className="mb-2 font-display text-base font-semibold">Deck options</h2>
         <div className="space-y-2 rounded-2xl border border-line bg-surface p-2.5">
           <form action={updateDeckNewCardsPerDay} className="flex items-center gap-2">
@@ -275,14 +244,56 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
           {deck.archivedAt ? null : (
             <form action={archiveDeck}>
               <input type="hidden" name="deckId" value={deck.id} />
-              <Button type="submit" variant="ghost" size="sm" className="w-full justify-start px-1">
+              <ConfirmSubmit
+                message={`Archive "${deck.name}"${subdecks.length > 0 ? " and its subdecks" : ""}? It won't be studied, but nothing is deleted — you can unarchive it from the Archived section.`}
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start px-1"
+              >
                 <Archive className="size-4" aria-hidden />
                 Archive deck{subdecks.length > 0 ? " and its subdecks" : ""}
-              </Button>
+              </ConfirmSubmit>
             </form>
           )}
         </div>
       </section>
+
+      {cards.length > 0 || subdecks.length === 0 ? (
+        // Collapsed by default: a deck can hold hundreds of cards, and the list
+        // shouldn't push everything else off the screen.
+        <details className="deck-group mt-6 mb-4">
+          <summary className="mb-2 flex cursor-pointer list-none items-baseline justify-between">
+            <h2 className="font-display text-base font-semibold">
+              <span className="deck-closed mr-1.5 font-mono text-muted">+</span>
+              <span className="deck-open mr-1.5 font-mono text-muted">−</span>
+              Cards
+              {subdecks.length > 0 ? (
+                <span className="ml-1 text-xs font-normal text-muted">in this deck</span>
+              ) : null}
+            </h2>
+            <span className="text-xs text-muted tabular-nums">
+              {ownCount > cards.length ? `first ${cards.length} of ${ownCount}` : ownCount}
+            </span>
+          </summary>
+
+          {cards.length === 0 ? (
+            <Panel className="text-center text-sm text-muted">
+              This deck is empty. Generate cards above to fill it.
+            </Panel>
+          ) : (
+            <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
+              {cards.map((card) => (
+                <CardRow
+                  key={card.id}
+                  card={card}
+                  languages={{ target: target.code, source: source.code }}
+                />
+              ))}
+            </ul>
+          )}
+        </details>
+      ) : null}
+
     </Screen>
   );
 }
