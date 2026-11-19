@@ -12,6 +12,14 @@ import { prefetch, unlock } from "@/lib/audio-cache";
 import { RATING_LABELS, type RatingValue } from "@/lib/srs";
 import type { QueueCard } from "@/lib/study";
 import { cn } from "@/lib/utils";
+import { cardKind, KIND_LABELS, remainingByKind, type CardKind } from "@/lib/study-counts";
+
+// Anki's colours: New blue, Learn red, Due green (as in the deck list).
+const KIND_COLORS: Record<CardKind, string> = {
+  new: "text-easy",
+  learn: "text-again",
+  due: "text-good",
+};
 
 const RATING_ORDER: RatingValue[] = [1, 2, 3, 4];
 
@@ -284,6 +292,7 @@ export function StudySession({
   }
 
   const progress = (index / queue.length) * 100;
+  const counts = remainingByKind(queue, index);
   const mode = promptMode(card);
   // Naming the target before reveal would spoil production/picture cards.
   const chatLabel =
@@ -329,9 +338,26 @@ export function StudySession({
         </button>
       </div>
 
-      <p className="pb-1 text-center text-[11px] uppercase tracking-wide text-muted">
+      <p className="text-center text-[11px] uppercase tracking-wide text-muted">
         {card.deckName || deckName}
-        {card.state === "NEW" ? " · new" : ""}
+      </p>
+      {/* Anki's New · Learn · Due, with this card's kind underlined. */}
+      <p
+        className="flex items-center justify-center gap-2 pb-1 text-xs tabular-nums"
+        aria-label={`${KIND_LABELS[cardKind(card)]}. Left: ${counts.new} new, ${counts.learn} learning, ${counts.due} due`}
+      >
+        {(["new", "learn", "due"] as const).map((kind) => (
+          <span
+            key={kind}
+            className={cn(
+              counts[kind] > 0 ? KIND_COLORS[kind] : "text-muted/40",
+              cardKind(card) === kind && "font-semibold underline underline-offset-4",
+            )}
+          >
+            {counts[kind]}
+          </span>
+        ))}
+        <span className="text-muted">· {KIND_LABELS[cardKind(card)]}</span>
       </p>
       {notice}
 
