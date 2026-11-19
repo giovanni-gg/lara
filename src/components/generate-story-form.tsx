@@ -69,8 +69,11 @@ export function GenerateStoryForm({
         return;
       }
 
-      // Busy stays on through the navigation, so the button can't fire twice.
-      router.push(`/articles/${data.story.id}`);
+      // Queued: it's written server-side, so go back to the library, where it
+      // shows as "Writing…" and appears when ready. Busy stays on through the
+      // navigation, so the button can't fire twice.
+      router.push("/articles");
+      router.refresh();
     } catch {
       setError("Could not reach the server");
       setBusy(false);

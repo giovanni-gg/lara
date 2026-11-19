@@ -1,9 +1,9 @@
 import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireActiveProfile } from "@/lib/session";
-import { STORY_LENGTH_KEYS, STORY_LENGTHS } from "@/lib/ai/stories";
-import { MissingAiCredentialsError } from "@/lib/ai/model";
-import { createStory, StoryInputError, synthesizeStoryAudio } from "@/lib/stories";
+import { STORY_LENGTH_KEYS } from "@/lib/ai/stories";
+import { hasAiCredentials } from "@/lib/ai/model";
+import { queueStory, StoryInputError, synthesizeStoryAudio, writeStory } from "@/lib/stories";
 import { ttsAvailable } from "@/lib/tts";
 
 const body = z.object({
@@ -19,11 +19,14 @@ const body = z.object({
   withAudio: z.boolean().default(true),
 });
 
-/** Sentences spoken before responding, so pressing play in the reader is instant. */
-const LEAD_SENTENCES = 3;
-
+// The writing (≈30–60 s) and the audio run in `after()`, inside this budget.
 export const maxDuration = 300;
 
+/**
+ * Queues a story and returns at once (202). The story is written server-side
+ * after the response, so the learner can leave the page — or queue another —
+ * and the library shows it as "Writing…" until it's ready.
+ */
 export async function POST(request: Request) {
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -38,37 +41,34 @@ export async function POST(request: Request) {
   try {
     ({ user, profile } = await requireActiveProfile());
   } catch {
+    return NextResponse.json({ error: "Create a language profile first" }, { status: 400 });
+  }
+
+  // Fail fast rather than queue something that can only fail.
+  if (!hasAiCredentials()) {
     return NextResponse.json(
-      { error: "Create a language profile first" },
-      { status: 400 },
+      { error: "Story writing isn't configured (no AI credentials)." },
+      { status: 503 },
     );
   }
 
-  let story;
+  const input = { userId: user.id, profile, prompt, length, deckId };
+  let id: string;
   try {
-    story = await createStory({ userId: user.id, profile, prompt, length, deckId });
+    id = await queueStory(input);
   } catch (error) {
     if (error instanceof StoryInputError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
-    if (error instanceof MissingAiCredentialsError) {
-      return NextResponse.json({ error: error.message }, { status: 503 });
-    }
-    const message = error instanceof Error ? error.message : "Generation failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+    throw error;
   }
 
   const speak = withAudio && ttsAvailable();
-  if (speak) {
-    await synthesizeStoryAudio(story.id, { limit: LEAD_SENTENCES });
-    // The rest is spoken after the response, in reading order — far faster
-    // than anyone listens, and the reader fills any gap on demand.
-    after(() => synthesizeStoryAudio(story.id));
-  }
-
-  return NextResponse.json({
-    story,
-    audio: speak,
-    requestedWords: STORY_LENGTHS[length].words,
+  after(async () => {
+    const written = await writeStory(id, input);
+    // Sentences are spoken in reading order; the reader fills any gap on demand.
+    if (written && speak) await synthesizeStoryAudio(id);
   });
+
+  return NextResponse.json({ id, status: "writing" }, { status: 202 });
 }

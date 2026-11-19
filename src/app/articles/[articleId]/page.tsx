@@ -4,7 +4,9 @@ import { ChevronLeft } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { StoryReader } from "@/components/story-reader";
-import { Screen } from "@/components/ui";
+import { ButtonLink, Screen } from "@/components/ui";
+import { AutoRefresh } from "@/components/auto-refresh";
+import { storyState } from "@/lib/stories";
 
 export default async function StoryPage({
   params,
@@ -21,6 +23,8 @@ export default async function StoryPage({
       level: true,
       wordCount: true,
       readAt: true,
+      status: true,
+      createdAt: true,
       newVocabulary: true,
       deck: { select: { id: true, name: true } },
       segments: {
@@ -36,6 +40,28 @@ export default async function StoryPage({
     },
   });
   if (!story) notFound();
+
+  const state = storyState(story);
+  if (state !== "ready") {
+    return (
+      <Screen>
+        <AutoRefresh active={state === "writing"} />
+        <div className="flex min-h-[60dvh] flex-col items-center justify-center gap-3 text-center">
+          <p className="font-display text-xl font-semibold">
+            {state === "writing" ? "Still writing this story…" : "Couldn't write this story"}
+          </p>
+          <p className="max-w-xs text-sm text-muted">
+            {state === "writing"
+              ? "It's being written on the server — you can leave; it'll be in Listen & Read when it's ready."
+              : "Something went wrong while writing it. Delete it from Listen & Read and try again."}
+          </p>
+          <ButtonLink href="/articles" variant="secondary" size="sm">
+            Back to Listen & Read
+          </ButtonLink>
+        </div>
+      </Screen>
+    );
+  }
 
   return (
     <Screen>

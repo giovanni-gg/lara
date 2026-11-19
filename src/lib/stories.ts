@@ -8,13 +8,32 @@ import {
 } from "./story-vocabulary";
 import { trySynthesize } from "./tts";
 import { ArticleStatus, ContentKind, type CefrLevel } from "@/generated/prisma/enums";
+import { nextLevelUp } from "./languages";
 
 /**
- * Writing a story end to end: gather the learner's words, have the model write
- * it, save it with its sentences. Audio is a separate step
- * (`synthesizeStoryAudio`) so the route can return before every sentence has
- * been spoken.
+ * Writing a story is a server-side job, so leaving the page can't lose it:
+ *
+ *   queueStory   — validates the request and saves a DRAFT placeholder
+ *                  ("Writing…") the library can show immediately.
+ *   writeStory   — gathers the learner's words, has the model write the story
+ *                  and fills that same row in (READY), or marks it FAILED.
+ *   synthesizeStoryAudio — speaks the sentences.
+ *
+ * The route runs the last two in `after()`, once the response is sent.
  */
+
+/** Where a story is, for the library: kept out of components so render stays pure. */
+export function storyState(story: { status: ArticleStatus; createdAt: Date }): "writing" | "failed" | "ready" {
+  if (story.status === ArticleStatus.READY) return "ready";
+  if (story.status === ArticleStatus.FAILED) return "failed";
+  return Date.now() - story.createdAt.getTime() > STORY_STALE_AFTER_MS ? "failed" : "writing";
+}
+
+/** How many stories may be in the works at once. */
+export const MAX_STORIES_IN_PROGRESS = 3;
+
+/** A DRAFT older than this was lost (crash, timeout) and is shown as failed. */
+export const STORY_STALE_AFTER_MS = 10 * 60_000;
 
 /** Bad input the caller should see as a 4xx, e.g. a deck that isn't theirs. */
 export class StoryInputError extends Error {
@@ -41,13 +60,81 @@ export type CreateStoryInput = {
 /** How many of the learner's general known words go in the prompt. */
 const BACKGROUND_WORDS = 250;
 
-export async function createStory({
-  userId,
-  profile,
-  prompt,
-  length,
-  deckId,
-}: CreateStoryInput) {
+/** Saves a "Writing…" placeholder for a story and returns its id. Fast; no AI. */
+export async function queueStory({ userId, profile, prompt, deckId }: CreateStoryInput) {
+  let topic: string | null = prompt ?? null;
+  if (deckId) {
+    const row = await prisma.deck.findFirst({
+      where: { id: deckId, userId, profileId: profile.id },
+      select: { id: true },
+    });
+    if (!row) throw new StoryInputError("That deck doesn't exist");
+    const cards = await prisma.card.count({ where: { deckId: { in: await subtreeIds(profile.id, row.id) } } });
+    if (cards === 0) throw new StoryInputError("That deck has no cards yet");
+    topic ??= (await deckPath(row.id)).map((p) => p.name).join(" · ");
+  }
+
+  const inProgress = await prisma.article.count({
+    where: {
+      profileId: profile.id,
+      status: ArticleStatus.DRAFT,
+      createdAt: { gt: new Date(Date.now() - STORY_STALE_AFTER_MS) },
+    },
+  });
+  if (inProgress >= MAX_STORIES_IN_PROGRESS) {
+    throw new StoryInputError(
+      `${MAX_STORIES_IN_PROGRESS} stories are already being written — wait for one to finish.`,
+    );
+  }
+
+  const { id } = await prisma.article.create({
+    data: {
+      userId,
+      profileId: profile.id,
+      deckId: deckId ?? null,
+      kind: ContentKind.STORY,
+      status: ArticleStatus.DRAFT,
+      title: "Writing your story…",
+      topic,
+      level: nextLevelUp(profile.level),
+      body: "",
+      sourcePrompt: prompt ?? null,
+    },
+    select: { id: true },
+  });
+  return id;
+}
+
+/**
+ * Writes the story for a queued placeholder and fills it in. Never throws: a
+ * failure marks the row FAILED so the library can say so.
+ */
+export async function writeStory(articleId: string, input: CreateStoryInput): Promise<boolean> {
+  try {
+    const story = await composeStory(input);
+    await prisma.$transaction([
+      prisma.articleSegment.deleteMany({ where: { articleId } }),
+      prisma.article.update({
+        where: { id: articleId },
+        data: {
+          ...story.fields,
+          status: ArticleStatus.READY,
+          segments: { create: story.segments },
+        },
+      }),
+    ]);
+    return true;
+  } catch (error) {
+    console.error(`[stories] writing ${articleId} failed:`, error);
+    await prisma.article
+      .update({ where: { id: articleId }, data: { status: ArticleStatus.FAILED } })
+      .catch(() => {});
+    return false;
+  }
+}
+
+/** The model call plus everything it needs; returns the row's content. */
+async function composeStory({ userId, profile, prompt, length, deckId }: CreateStoryInput) {
   const spec = STORY_LENGTHS[length];
 
   let deck: (DeckVocabulary & { id: string; label: string }) | undefined;
@@ -109,32 +196,23 @@ export async function createStory({
   const segments = story.segments.filter((s) => s.target.trim());
   const bodyText = segments.map((s) => s.target.trim()).join(" ");
 
-  return prisma.article.create({
-    data: {
-      userId,
-      profileId: profile.id,
-      deckId: deck?.id ?? null,
-      kind: ContentKind.STORY,
+  return {
+    fields: {
       title: story.title,
       titleTranslated: story.titleTranslated,
       topic: prompt ?? deck?.label ?? null,
       level,
-      status: ArticleStatus.READY,
       body: bodyText,
       wordCount: countWords(bodyText),
       reusedVocabulary: story.reusedVocabulary,
       newVocabulary: story.newVocabulary,
-      sourcePrompt: prompt ?? null,
-      segments: {
-        create: segments.map((segment, index) => ({
-          index,
-          target: segment.target.trim(),
-          translation: segment.translation.trim(),
-        })),
-      },
     },
-    select: { id: true, title: true, level: true, wordCount: true },
-  });
+    segments: segments.map((segment, index) => ({
+      index,
+      target: segment.target.trim(),
+      translation: segment.translation.trim(),
+    })),
+  };
 }
 
 /**
