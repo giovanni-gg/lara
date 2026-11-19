@@ -50,12 +50,33 @@ export type SpeakPromptInput = {
   topic: string;
   /** A deck whose words to weave in. */
   deck?: SpeakDeck;
+  /** Set when resuming after a pause: what was said before it. */
+  history?: SpeakTurn[];
 };
+
+export type SpeakTurn = { role: "user" | "agent"; text: string };
+
+/** How much of a paused conversation is carried into the resumed call. */
+export const MAX_HISTORY_TURNS = 30;
+export const MAX_HISTORY_CHARS = 6000;
+
+/** The most recent turns that fit the budget, oldest first. */
+export function recentHistory(history: SpeakTurn[]): SpeakTurn[] {
+  const kept: SpeakTurn[] = [];
+  let chars = 0;
+  for (const turn of history.slice(-MAX_HISTORY_TURNS).reverse()) {
+    chars += turn.text.length;
+    if (chars > MAX_HISTORY_CHARS) break;
+    kept.unshift(turn);
+  }
+  return kept;
+}
 
 /** Short enough to keep in a voice prompt; a conversation can't use more. */
 export const MAX_DECK_WORDS = 20;
 
-export function tutorPrompt({ learner, topic, deck }: SpeakPromptInput): string {
+export function tutorPrompt({ learner, topic, deck, history }: SpeakPromptInput): string {
+  const resuming = Boolean(history && history.length > 0);
   const target = getLanguage(learner.targetLanguage).name;
   const source = getLanguage(learner.sourceLanguage).name;
   const level = learner.level;
@@ -75,7 +96,9 @@ export function tutorPrompt({ learner, topic, deck }: SpeakPromptInput): string 
     `- Speak ${target} by default.`,
     "- Keep every turn short and spoken: one to three sentences, then hand the turn back, usually with a question. Never lecture.",
     "- This is speech, not text: no lists, no markdown, no emoji, no parentheses. Write numbers as words.",
-    `- You opened with a short greeting. When they answer it, bring in the topic with a simple question.`,
+    resuming
+      ? `- This call resumes a conversation they paused. You opened with a short "let's continue" line; don't greet them again or restart the topic. Carry on from where it stopped.`
+      : `- You opened with a short greeting. When they answer it, bring in the topic with a simple question.`,
     beginner
       ? `- Use short sentences, everyday words and the present tense mostly. Speak slowly and clearly; if they struggle, simplify rather than repeat word for word.`
       : `- Use natural, idiomatic ${target}, with the expressions a native speaker would really use.`,
@@ -113,6 +136,14 @@ export function tutorPrompt({ learner, topic, deck }: SpeakPromptInput): string 
     );
   }
 
+  if (resuming) {
+    lines.push(
+      "",
+      "# The conversation so far (before the pause)",
+      ...recentHistory(history!).map((t) => `${t.role === "user" ? "Learner" : "You"}: ${t.text}`),
+    );
+  }
+
   return lines.filter((line) => line !== null).join("\n");
 }
 
@@ -140,6 +171,25 @@ export function greeting(targetLanguage: string): string {
   return GREETINGS[targetLanguage] ?? "";
 }
 
+/** The opening line after a pause: pick up, don't start over. */
+const RESUME_LINES: Record<string, string> = {
+  sv: "Då fortsätter vi! Var var vi?",
+  pt: "Vamos continuar! Onde estávamos?",
+  es: "¡Seguimos! ¿Dónde estábamos?",
+  de: "Weiter geht's! Wo waren wir?",
+  fr: "On reprend ! Où en étions-nous ?",
+  it: "Riprendiamo! Dove eravamo?",
+  nl: "We gaan verder! Waar waren we?",
+  da: "Vi fortsætter! Hvor var vi?",
+  no: "Vi fortsetter! Hvor var vi?",
+  pl: "Kontynuujmy! Na czym skończyliśmy?",
+  en: "Let's pick up where we left off.",
+};
+
+export function resumeLine(targetLanguage: string): string {
+  return RESUME_LINES[targetLanguage] ?? "";
+}
+
 /** Slower for beginners, natural speed once they can take it. */
 export function speechSpeed(level: CefrLevel): number {
   if (level === "A1" || level === "A2") return 0.9;
@@ -162,7 +212,10 @@ export function speakOverrides(
   return {
     agent: {
       prompt: { prompt: tutorPrompt(input) },
-      firstMessage: greeting(input.learner.targetLanguage),
+      firstMessage:
+        input.history && input.history.length > 0
+          ? resumeLine(input.learner.targetLanguage)
+          : greeting(input.learner.targetLanguage),
       language: input.learner.targetLanguage,
     },
     tts: {

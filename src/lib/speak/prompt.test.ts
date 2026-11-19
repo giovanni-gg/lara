@@ -6,6 +6,10 @@
 import { describe, expect, it } from "vitest";
 import {
   greeting,
+  MAX_HISTORY_CHARS,
+  MAX_HISTORY_TURNS,
+  recentHistory,
+  resumeLine,
   MAX_DECK_WORDS,
   SHOW_CORRECTION_TOOL,
   speakOverrides,
@@ -129,5 +133,66 @@ describe("language specifics", () => {
   it("speaks slower for beginners", () => {
     expect(speechSpeed("A1")).toBeLessThan(speechSpeed("B2"));
     expect(speechSpeed("C1")).toBe(1);
+  });
+});
+
+describe.each(LEARNERS)("resuming a paused conversation ($name)", (learner) => {
+  const history = [
+    { role: "agent" as const, text: "Vad gjorde du i helgen?" },
+    { role: "user" as const, text: "Jag gick till stranden." },
+  ];
+  const input = {
+    learner: { ...learner, level: "A2" as const },
+    topic: "Weekend plans",
+    voiceId: "voice",
+  };
+
+  it("opens with a 'let's continue' line, not a fresh greeting", () => {
+    const fresh = speakOverrides(input);
+    const resumed = speakOverrides({ ...input, history });
+    expect(fresh.agent.firstMessage).toBe(greeting(learner.targetLanguage));
+    expect(resumed.agent.firstMessage).toBe(resumeLine(learner.targetLanguage));
+    expect(resumed.agent.firstMessage).not.toBe(fresh.agent.firstMessage);
+    // Still the learner's own languages and voice.
+    expect(resumed.agent.language).toBe(learner.targetLanguage);
+    expect(resumed.tts.voiceId).toBe("voice");
+  });
+
+  it("hands the tutor the conversation so far and tells it not to start over", () => {
+    const prompt = tutorPrompt({ ...input, history });
+    expect(prompt).toContain("# The conversation so far (before the pause)");
+    expect(prompt).toContain("You: Vad gjorde du i helgen?");
+    expect(prompt).toContain("Learner: Jag gick till stranden.");
+    expect(prompt).toContain("don't greet them again or restart the topic");
+    expect(prompt).not.toContain("You opened with a short greeting");
+    // The language rules are unchanged by resuming.
+    expect(prompt).toContain(`Explanations are always in ${learner.source}`);
+  });
+
+  it("a fresh call has no history section", () => {
+    expect(tutorPrompt(input)).not.toContain("The conversation so far");
+  });
+});
+
+describe("recentHistory", () => {
+  it("keeps the most recent turns within the budget, oldest first", () => {
+    const many = Array.from({ length: MAX_HISTORY_TURNS + 10 }, (_, i) => ({
+      role: (i % 2 ? "user" : "agent") as "user" | "agent",
+      text: `turn ${i}`,
+    }));
+    const kept = recentHistory(many);
+    expect(kept).toHaveLength(MAX_HISTORY_TURNS);
+    expect(kept[0].text).toBe("turn 10");
+    expect(kept.at(-1)!.text).toBe(`turn ${MAX_HISTORY_TURNS + 9}`);
+  });
+
+  it("drops the oldest turns once the text budget is spent", () => {
+    const long = "x".repeat(MAX_HISTORY_CHARS / 2);
+    const kept = recentHistory([
+      { role: "user", text: `${long}a` },
+      { role: "agent", text: long },
+      { role: "user", text: "latest" },
+    ]);
+    expect(kept.map((t) => t.text)).toEqual([long, "latest"]);
   });
 });

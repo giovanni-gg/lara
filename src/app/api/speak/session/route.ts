@@ -20,6 +20,11 @@ const body = z
       .transform((value) => value?.trim() || undefined),
     /** Weave in this deck's words (subdecks included). */
     deckId: z.string().min(1).max(64).optional(),
+    /** Resuming after a pause: what was said so far (trimmed to fit the prompt). */
+    history: z
+      .array(z.object({ role: z.enum(["user", "agent"]), text: z.string().max(2000) }))
+      .max(200)
+      .optional(),
   })
   .refine((value) => value.topic || value.deckId, { message: "Pick a topic or a deck" });
 
@@ -86,6 +91,7 @@ export async function POST(request: Request) {
       learner: profile,
       topic,
       deck,
+      history: parsed.data.history,
       voiceId: voiceForLanguage(profile.targetLanguage, profile.voiceId),
     }),
   });

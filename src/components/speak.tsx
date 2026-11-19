@@ -7,7 +7,7 @@ import {
   useConversationClientTool,
   type HookOptions,
 } from "@elevenlabs/react";
-import { AudioLines, Loader2, Mic, MicOff, PhoneOff, RotateCcw } from "lucide-react";
+import { AudioLines, Loader2, Mic, MicOff, Pause, PhoneOff, Play, RotateCcw } from "lucide-react";
 import { Button, inputStyles } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { SHOW_CORRECTION_TOOL, type Correction, type SpeakOverrides } from "@/lib/speak/prompt";
@@ -16,9 +16,12 @@ import { SHOW_CORRECTION_TOOL, type Correction, type SpeakOverrides } from "@/li
  * Speak: a voice conversation with the tutor agent over WebRTC.
  *
  *   pick  → choose a topic and/or a deck
- *   live  → connecting, then listening/speaking, with the transcript and
- *           correction cards as they come
- *   ended → the transcript stays, the conversation is saved
+ *   live   → connecting, then listening/speaking, with the transcript and
+ *            correction cards as they come
+ *   paused → the call is hung up (ElevenLabs bills per connected minute), the
+ *            transcript stays; Resume starts a new call that is handed the
+ *            conversation so far and carries on from it
+ *   ended  → the transcript stays, the conversation is saved (once, whole)
  */
 
 const TOPICS = [
@@ -62,7 +65,9 @@ type Session = {
   overrides: SpeakOverrides;
 };
 
-type Phase = "pick" | "live" | "ended";
+type Phase = "pick" | "live" | "paused" | "ended";
+
+type Choice = { topic?: string; deckId?: string };
 
 export function Speak(props: {
   decks: SpeakDeckOption[];
@@ -88,6 +93,10 @@ function SpeakScreen({ decks, learner }: { decks: SpeakDeckOption[]; learner: Sp
   const nextId = useRef(0);
   const session = useRef<Session | null>(null);
   const connected = useRef(false);
+  // Set while hanging up for a pause, so the disconnect doesn't end/save.
+  const pausing = useRef(false);
+  // What the conversation was started with, reused when resuming.
+  const choice = useRef<Choice>({});
 
   const add = (item: NewItem) => {
     log.current = [...log.current, { ...item, id: nextId.current++ }];
@@ -119,10 +128,16 @@ function SpeakScreen({ decks, learner }: { decks: SpeakDeckOption[]; learner: Sp
       // A failure before the call connected never reaches onDisconnect.
       if (!connected.current) {
         setError(`Couldn't connect: ${message}`);
-        setPhase("ended");
+        // A failed resume keeps the conversation: back to paused, try again.
+        setPhase(log.current.length > 0 ? "paused" : "ended");
       }
     },
     onDisconnect: (details) => {
+      if (pausing.current) {
+        pausing.current = false;
+        setPhase("paused");
+        return;
+      }
       setPhase("ended");
       if (details.reason === "error") setError(`The call dropped: ${details.message}`);
       void save();
@@ -160,13 +175,54 @@ function SpeakScreen({ decks, learner }: { decks: SpeakDeckOption[]; learner: Sp
     }).catch(() => {});
   }
 
-  async function start(choice: { topic?: string; deckId?: string }) {
+  /** Hang up but keep everything: no minutes are used while paused. */
+  function pause() {
+    pausing.current = true;
+    conversation.endSession();
+  }
+
+  /** A new call that's handed the conversation so far and carries on. */
+  async function resume() {
+    if (starting || !session.current) return;
+    setStarting(true);
+    setError(null);
+    try {
+      const history = log.current.flatMap((item) =>
+        item.kind === "correction" ? [] : [{ role: item.kind, text: item.text }],
+      );
+      const [data] = await Promise.all([
+        requestSession({ ...choice.current, history }),
+        ensureMicrophone(),
+      ]);
+      // Keep the first call's id/topic: it's still one conversation to save.
+      connected.current = false;
+      setPhase("live");
+      conversation.startSession({
+        conversationToken: data.conversationToken,
+        connectionType: "webrtc",
+        overrides: data.overrides as HookOptions["overrides"],
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't resume the conversation");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  /** End from the paused screen: the call is already down, so just save. */
+  function finish() {
+    setPhase("ended");
+    void save();
+  }
+
+  async function start(picked: Choice) {
     if (starting) return;
     setStarting(true);
     setError(null);
     try {
+      choice.current = picked;
       // Mic permission and the token in parallel: both are needed, neither waits on the other.
-      const [data] = await Promise.all([requestSession(choice), ensureMicrophone()]);
+      const [data] = await Promise.all([requestSession(picked), ensureMicrophone()]);
       session.current = data;
       connected.current = false;
       log.current = [];
@@ -214,8 +270,27 @@ function SpeakScreen({ decks, learner }: { decks: SpeakDeckOption[]; learner: Sp
             speaking={conversation.isSpeaking}
             muted={conversation.isMuted}
             onMute={() => conversation.setMuted(!conversation.isMuted)}
+            onPause={pause}
             onEnd={() => conversation.endSession()}
           />
+        ) : phase === "paused" ? (
+          <div className="space-y-2 border-t border-line pb-safe pt-3">
+            <p className="text-center text-xs text-muted" role="status">
+              {error ?? "Paused — the call is off, no minutes used. Lara will pick up where you stopped."}
+            </p>
+            <Button className="w-full min-h-12" onClick={() => void resume()} disabled={starting}>
+              {starting ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <Play className="size-4" aria-hidden />
+              )}
+              Resume
+            </Button>
+            <Button variant="secondary" className="w-full" onClick={finish} disabled={starting}>
+              <PhoneOff className="size-4" aria-hidden />
+              End conversation
+            </Button>
+          </div>
         ) : (
           <div className="space-y-2 pb-safe pt-3">
             {error ? <p className="text-center text-sm text-again">{error}</p> : null}
@@ -230,7 +305,9 @@ function SpeakScreen({ decks, learner }: { decks: SpeakDeckOption[]; learner: Sp
   );
 }
 
-async function requestSession(choice: { topic?: string; deckId?: string }): Promise<Session> {
+async function requestSession(
+  choice: Choice & { history?: { role: "user" | "agent"; text: string }[] },
+): Promise<Session> {
   let response: Response;
   try {
     response = await fetch("/api/speak/session", {
@@ -416,12 +493,14 @@ function Controls({
   speaking,
   muted,
   onMute,
+  onPause,
   onEnd,
 }: {
   status: string;
   speaking: boolean;
   muted: boolean;
   onMute: () => void;
+  onPause: () => void;
   onEnd: () => void;
 }) {
   const connecting = status !== "connected";
@@ -477,14 +556,25 @@ function Controls({
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={onEnd}
-          aria-label="End conversation"
-          className="flex size-12 items-center justify-center rounded-full border border-again/40 bg-again/15 text-again"
-        >
-          <PhoneOff className="size-5" aria-hidden />
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onPause}
+            disabled={connecting}
+            aria-label="Pause conversation"
+            className="flex size-12 items-center justify-center rounded-full border border-line bg-raised text-foreground disabled:opacity-40"
+          >
+            <Pause className="size-5" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={onEnd}
+            aria-label="End conversation"
+            className="flex size-12 items-center justify-center rounded-full border border-again/40 bg-again/15 text-again"
+          >
+            <PhoneOff className="size-5" aria-hidden />
+          </button>
+        </div>
       </div>
       <p className="mt-2 text-center text-xs text-muted" role="status">
         {label}
