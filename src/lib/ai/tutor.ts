@@ -23,7 +23,7 @@ export type CardContext = {
 
 export type TutorTurn = { role: "user" | "assistant"; content: string };
 
-function instructionsFor(card: CardContext): string {
+export function instructionsFor(card: CardContext): string {
   const target = getLanguage(card.targetLanguage).name;
   const source = getLanguage(card.sourceLanguage).name;
 

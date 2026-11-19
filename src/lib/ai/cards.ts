@@ -68,6 +68,9 @@ export async function generateCards({
     schema: cardBatch,
     instructions: [
       `You build vocabulary flashcards for someone learning ${target} who speaks ${source}.`,
+      // Spelled out: the schema says "target"/"source", and the model must never
+      // guess which is which (e.g. Portuguese for a Swedish speaker).
+      `The target language is ${target}: "target" and "targetSentence" are in ${target}. The source language is ${source}: "source", "sourceSentence", "notes" and the deck title are in ${source}.`,
       `Their level is CEFR ${level}. Pitch the vocabulary and the example sentences at that level.`,
       "Give the single most useful, most frequent form of each item — not obscure synonyms.",
       "Example sentences must be things a real speaker would say, not textbook filler.",

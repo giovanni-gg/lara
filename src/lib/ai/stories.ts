@@ -191,6 +191,7 @@ export async function generateStory(input: GenerateStoryInput): Promise<{
     schema: generatedStory,
     instructions: [
       `You write short fiction in ${target} for a learner whose native language is ${source}.`,
+      `Every sentence ("target") and the title are in ${target}. Every "translation" and "titleTranslated" is in ${source} — never English unless ${source} is English.`,
       `The learner is at CEFR ${level}. Write at CEFR ${writeAt} — one step above them.`,
       "The story is read on screen and listened to as audio, sentence by sentence, so it must sound natural read aloud.",
       "",
