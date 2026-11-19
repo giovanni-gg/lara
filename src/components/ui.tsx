@@ -27,13 +27,13 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="flex items-start justify-between gap-3 pt-6 pb-5">
+    <header className="flex items-center justify-between gap-3 pt-4 pb-3">
       <div className="min-w-0">
-        <h1 className="font-display text-3xl font-semibold tracking-tight">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">
           {title}
         </h1>
         {subtitle ? (
-          <p className="mt-1 text-sm text-muted">{subtitle}</p>
+          <p className="mt-0.5 truncate text-xs text-muted">{subtitle}</p>
         ) : null}
       </div>
       {action}
@@ -51,7 +51,7 @@ export function Panel({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-line bg-surface p-4 shadow-sm",
+        "rounded-2xl border border-line bg-surface p-3.5 shadow-sm",
         className,
       )}
     >
@@ -61,7 +61,15 @@ export function Panel({
 }
 
 const BUTTON_BASE =
-  "inline-flex items-center justify-center gap-2 rounded-xl px-4 min-h-11 text-sm font-semibold transition-colors disabled:opacity-50 disabled:pointer-events-none";
+  "inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:pointer-events-none";
+
+const SIZES = {
+  md: "px-4 min-h-11",
+  /** Header actions and inline controls — still a comfortable tap. */
+  sm: "px-3 min-h-9",
+} as const;
+
+type Size = keyof typeof SIZES;
 
 const VARIANTS = {
   primary: "bg-accent text-accent-ink hover:brightness-105 active:brightness-95",
@@ -75,24 +83,29 @@ type Variant = keyof typeof VARIANTS;
 
 export function Button({
   variant = "primary",
+  size = "md",
   className,
   ...props
-}: ComponentProps<"button"> & { variant?: Variant }) {
+}: ComponentProps<"button"> & { variant?: Variant; size?: Size }) {
   return (
     <button
       {...props}
-      className={cn(BUTTON_BASE, VARIANTS[variant], className)}
+      className={cn(BUTTON_BASE, SIZES[size], VARIANTS[variant], className)}
     />
   );
 }
 
 export function ButtonLink({
   variant = "primary",
+  size = "md",
   className,
   ...props
-}: ComponentProps<typeof Link> & { variant?: Variant }) {
+}: ComponentProps<typeof Link> & { variant?: Variant; size?: Size }) {
   return (
-    <Link {...props} className={cn(BUTTON_BASE, VARIANTS[variant], className)} />
+    <Link
+      {...props}
+      className={cn(BUTTON_BASE, SIZES[size], VARIANTS[variant], className)}
+    />
   );
 }
 
@@ -106,17 +119,17 @@ export function Stat({
   tone?: "default" | "accent" | "good";
 }) {
   return (
-    <div className="flex-1 rounded-xl border border-line bg-raised px-3 py-3 text-center">
+    <div className="flex-1 rounded-xl border border-line bg-raised px-2 py-2 text-center">
       <div
         className={cn(
-          "font-display text-2xl font-semibold leading-none tabular-nums",
+          "font-display text-xl font-semibold leading-none tabular-nums",
           tone === "accent" && "text-accent",
           tone === "good" && "text-good",
         )}
       >
         {value}
       </div>
-      <div className="mt-1.5 text-[11px] uppercase tracking-wide text-muted">
+      <div className="mt-1 text-[10px] uppercase tracking-wide text-muted">
         {label}
       </div>
     </div>
@@ -155,7 +168,7 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-sm font-medium">{label}</span>
+      <span className="mb-1 block text-sm font-medium">{label}</span>
       {children}
       {hint ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null}
     </label>
@@ -163,7 +176,7 @@ export function Field({
 }
 
 export const inputStyles =
-  "w-full rounded-xl border border-line bg-raised px-3 py-2.5 text-base text-foreground placeholder:text-muted/70 outline-none focus:border-accent";
+  "w-full rounded-xl border border-line bg-raised px-3 py-2 text-base text-foreground placeholder:text-muted/70 outline-none focus:border-accent";
 
 export function Badge({
   children,

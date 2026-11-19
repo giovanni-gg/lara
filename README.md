@@ -46,16 +46,31 @@ and live in `src/lib/languages.ts`.
 
 ---
 
-## Importing your existing decks
+## Importing from Anki
+
+Bring a whole Anki profile over — decks and subdecks, cards, audio and images,
+scheduling state, and the full review history:
 
 ```bash
-npm run import:anki -- "../personal-projects/anki_creator/input/language_learning/target_swedish" sv
+# See what would be imported; writes nothing.
+npm run import:anki-collection -- "$APPDATA/Anki2/User 1/collection.anki2" sv --dry-run
+
+# Import. --replace deletes the profile's existing decks first.
+npm run import:anki-collection -- "$APPDATA/Anki2/User 1/collection.anki2" sv --replace
 ```
 
-Directory structure becomes deck names (`nouns/professions.csv` → "Nouns ·
-Professions"). Re-running is safe — existing cards are skipped, not duplicated.
-Audio isn't regenerated on import; imported cards get it when you next edit them
-or generate alongside them.
+- Anki is never written to: the collection is copied and opened read-only, so
+  it's fine to run with Anki open.
+- Cards keep the side Anki showed first: audio on the front → Swedish first,
+  audio on the back → English first, a picture on the front → picture card.
+- FSRS stability/difficulty come straight from Anki. Cards reviewed before FSRS
+  was switched on get theirs by replaying their history.
+- Suspended cards stay suspended; daily limits are copied from the deck preset.
+- Re-running with `--replace` refuses if you've done reviews in Lara since
+  (they'd be lost); add `--force` if that's really what you want.
+
+The older CSV importer for `anki_creator` output still exists
+(`npm run import:anki -- <dir> sv`).
 
 ---
 
@@ -86,7 +101,8 @@ Two properties worth knowing, because they shape the schema:
 ```
 prisma/schema.prisma        Users, language profiles, decks, cards, reviews, articles
 src/lib/
-  srs.ts                   FSRS wrapper — the only file that imports ts-fsrs
+  srs.ts                   FSRS wrapper — the only file that imports ts-fsrs; scheduler settings
+  deck-tree.ts             Deck/subdeck tree with rolled-up counts
   study.ts                 Queue building, review submission, deck/profile stats
   ai/cards.ts              Prompt → flashcards
   ai/stories.ts            Prompt + length → narrative fiction at i+1
@@ -102,6 +118,7 @@ src/app/
   decks/                   Deck list, deck detail, manual card entry
   articles/                Stories + articles library and reader
   api/                     reviews, */generate, cards/[id]/chat, segments audio
+scripts/import-anki.ts     Anki collection importer (decks, cards, media, history)
 scripts/import-anki-csv.ts anki_creator CSV importer
 ```
 
@@ -121,5 +138,37 @@ Two things must change before this is a real deployment:
 
 - **Auth.** Everything currently resolves to one local account via
   `src/lib/session.ts`. That file is the only place that knows who the user is.
-- **Media storage.** `src/lib/media.ts` writes to disk, which is not durable on
-  serverless — switch it to Vercel Blob.
+- **Media storage.** Set `MEDIA_STORAGE=blob` in production and upload
+  `.media/` once — see below. The default, `local`, writes to disk, which is
+  not durable on serverless.
+
+### Media on Vercel Blob
+
+Card audio and images are always addressed as `/api/media/<key>.<ext>`, and
+those URLs are stored in the database, so they don't change between backends.
+`MEDIA_STORAGE` (read by `src/lib/media.ts`) picks where the bytes live:
+
+- `local` (default): `.media/` on disk. Development only.
+- `blob`: a **private** Vercel Blob store, at pathname `media/<key>.<ext>`.
+  `/api/media` streams each object through server-side, so media stays behind
+  the app's password rather than on public Blob URLs. New TTS audio is
+  written there too. Credentials are whatever the connected store provides:
+  `BLOB_READ_WRITE_TOKEN`, or OIDC (`VERCEL_OIDC_TOKEN` + `BLOB_STORE_ID`).
+
+One-time setup:
+
+```bash
+# 1. Create a private Blob store, connect it to the project (Storage tab),
+#    and set MEDIA_STORAGE=blob for Production.
+vercel blob create-store lara-media --access private
+# 2. Pull the production env, which includes the store's credentials:
+vercel env pull .env.production.local --environment=production
+# 3. Count what would be uploaded, then upload:
+npm run media:upload -- --env-file .env.production.local --dry-run
+npm run media:upload -- --env-file .env.production.local
+```
+
+The upload lists the store once, skips files already there at the same size,
+and runs 8 uploads at a time with retries. It's safe to interrupt (Ctrl-C lets
+in-flight uploads finish) and re-run: it resumes where it stopped. Run it again
+after importing more Anki media locally.

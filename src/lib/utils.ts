@@ -6,6 +6,11 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /** "in 3 days", "now", "2 hours ago" — compact enough for a phone screen. */
+/** Kept out of components so render stays pure (react-hooks/purity). */
+export function isPast(date: Date, now = new Date()): boolean {
+  return date.getTime() <= now.getTime();
+}
+
 export function relativeTime(date: Date, now = new Date()): string {
   const diffMs = date.getTime() - now.getTime();
   const abs = Math.abs(diffMs);

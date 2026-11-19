@@ -1,9 +1,10 @@
+import { ImageIcon } from "lucide-react";
 import { AudioButton } from "@/components/audio-button";
 import { CardChatButton } from "@/components/card-chat-button";
 import { Badge } from "@/components/ui";
 import { deleteCard, toggleCardSuspended } from "@/app/actions";
-import { relativeTime } from "@/lib/utils";
-import type { FsrsState } from "@/generated/prisma/enums";
+import { isPast, relativeTime } from "@/lib/utils";
+import type { CardType, FsrsState } from "@/generated/prisma/enums";
 
 type CardSummary = {
   id: string;
@@ -12,47 +13,81 @@ type CardSummary = {
   targetSentence: string | null;
   notes: string | null;
   audioUrl: string | null;
+  imageUrl: string | null;
+  cardType: CardType;
   state: FsrsState;
   due: Date;
   suspended: boolean;
 };
 
 /**
- * A card as it appears in a deck listing. Expands with <details> so the list
- * stays scannable on a phone but the full content is one tap away.
+ * A card as it appears in a deck listing: one slim row inside a divided list
+ * (the parent <ul> draws the border). Expands with <details> so the list stays
+ * scannable on a phone but the full content is one tap away.
  */
-export function CardRow({ card }: { card: CardSummary }) {
+export function CardRow({
+  card,
+  languages,
+}: {
+  card: CardSummary;
+  /** Language codes, for the "EN→SV" marker on production cards. */
+  languages?: { target: string; source: string };
+}) {
   return (
     <li>
-      <details className="group rounded-2xl border border-line bg-surface">
-        <summary className="flex cursor-pointer list-none items-center gap-3 p-4">
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2.5 active:bg-raised">
+          {card.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- local media, already sized
+            <img
+              src={card.imageUrl}
+              alt=""
+              loading="lazy"
+              className="size-9 shrink-0 rounded-lg border border-line object-cover"
+            />
+          ) : null}
           <div className="min-w-0 flex-1">
-            <p className="font-display truncate text-base font-medium">
+            <p className="font-display truncate text-[15px] font-medium leading-tight">
               {card.target}
             </p>
-            <p className="truncate text-sm text-muted">{card.source}</p>
+            <p className="truncate text-xs leading-tight text-muted">
+              <DirectionMarker type={card.cardType} languages={languages} />
+              {card.source}
+            </p>
           </div>
           {card.suspended ? (
             <Badge className="border-again/40 text-again">paused</Badge>
           ) : card.state === "NEW" ? (
             <Badge>new</Badge>
           ) : (
-            <Badge>{relativeTime(card.due)}</Badge>
+            // Overdue reads as "due", like Anki — "19 days ago" looked like last-seen.
+            isPast(card.due) ? (
+              <Badge className="border-good/40 text-good">due</Badge>
+            ) : (
+              <Badge>{relativeTime(card.due)}</Badge>
+            )
           )}
           <AudioButton src={card.audioUrl} size="sm" label={`Hear ${card.target}`} />
         </summary>
 
-        <div className="border-t border-line px-4 py-3">
+        <div className="border-t border-line bg-raised/40 px-3 py-2.5">
+          {card.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- local media, already sized
+            <img
+              src={card.imageUrl}
+              alt={card.target}
+              loading="lazy"
+              className="mb-2 max-h-40 rounded-lg border border-line object-contain"
+            />
+          ) : null}
           {card.targetSentence ? (
-            <p className="font-display text-sm leading-snug">
-              {card.targetSentence}
-            </p>
+            <p className="font-display text-sm leading-snug">{card.targetSentence}</p>
           ) : null}
           {card.notes ? (
-            <p className="mt-2 text-xs text-muted">{card.notes}</p>
+            <p className="mt-1.5 whitespace-pre-line text-xs text-muted">{card.notes}</p>
           ) : null}
 
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
             <CardChatButton card={card} />
             <form
               action={async () => {
@@ -85,4 +120,36 @@ export function CardRow({ card }: { card: CardSummary }) {
       </details>
     </li>
   );
+}
+
+/** Recognition is the default and unmarked; anything else gets a quiet prefix. */
+function DirectionMarker({
+  type,
+  languages,
+}: {
+  type: CardType;
+  languages?: { target: string; source: string };
+}) {
+  const MARK = "mr-1.5 inline-flex items-center align-[-1px] text-[10px] font-semibold uppercase tracking-wide text-muted/80";
+
+  switch (type) {
+    case "PRODUCTION":
+      return (
+        <span className={MARK} title="Production: see the translation, produce the word">
+          {languages ? `${languages.source}→${languages.target}` : "rev"}
+        </span>
+      );
+    case "PICTURE":
+      return (
+        <span className={MARK} title="Picture card">
+          <ImageIcon className="size-3" aria-label="Picture card" />
+        </span>
+      );
+    case "CLOZE":
+      return <span className={MARK}>cloze</span>;
+    case "TYPING":
+      return <span className={MARK}>typing</span>;
+    default:
+      return null;
+  }
 }

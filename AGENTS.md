@@ -47,11 +47,39 @@ See `README.md` for what it is and how to run it.
   returning `{ error }` from an `action={}` prop is a type error.
 - **Articles are generated at `nextLevelUp(profile.level)`, not at the profile's
   level.** That i+1 gap is the point of the feature, not a bug.
+- **One shared password gates the whole app** (`src/proxy.ts` + `src/lib/auth.ts`,
+  env `LARA_PASSWORD`). Public: `/login`, `/api/health`, `/_next/*`, favicon,
+  manifest, root-level images. Unset locally → gate off; unset on Vercel → 503
+  (fail closed). It doesn't identify anyone; `session.ts` still does that.
 - **Prisma 7:** client is generated to `src/generated/prisma` (gitignored) and
   needs a driver adapter. `import { PrismaClient } from "@/generated/prisma/client"`,
   never from `@prisma/client`.
 - **TTS is content-hash cached** in `.media/`. Re-synthesising identical text is
   free, so don't add your own caching layer around it.
+- **A card's facing is its own `cardType`, not the deck's.** RECOGNITION shows
+  `target`, PRODUCTION shows `source`, PICTURE shows `imageUrl`. Decks only
+  hold a default `direction` for new cards (BOTH = one card each way). On
+  PRODUCTION/PICTURE never play or label the target before reveal — it's the
+  answer.
+- **Decks nest via `parentId`, like Anki's `Parent::Child`.** Counts and study
+  sessions cover the whole subtree. Get them from `loadDeckTree` (one
+  `statsByDeck` pass, aggregated in memory) and `subtreeIds` — never per-node
+  queries. `DeckStats.learning` is learning cards *due now* (Anki's Learn
+  column); Due = `due - learning`.
+- **Scheduler settings are fixed, not user settings.** `SCHEDULER_SETTINGS` in
+  `srs.ts` mirrors the learner's Anki preset (85% retention, 10m steps, day
+  starts 04:00, leech tag at 8 lapses). Keeping Settings small is the point;
+  only daily limits and level are editable.
+- **Anki import** (`scripts/import-anki.ts`) copies the collection and opens it
+  read-only, so it's safe with Anki open. Anki day numbers are converted with
+  the collection's *current* time zone; answers given in another zone can land
+  a day off in the history check — that's expected and the check allows it.
+  `ankiId` on cards/reviews is how `--replace` refuses to wipe Lara-native
+  reviews without `--force`.
+- **`prisma migrate dev` refuses to run non-interactively** (e.g. from an
+  agent). Generate SQL with `prisma migrate diff --from-config-datasource
+  --to-schema prisma/schema.prisma --script -o prisma/migrations/<ts>_<name>/migration.sql`,
+  then `prisma migrate deploy` and `prisma generate`.
 
 ## Commands
 
@@ -60,4 +88,5 @@ npm run db:dev       # local Postgres (must be running for anything DB-backed)
 npm run db:migrate   # after editing prisma/schema.prisma
 npm run lint         # react-hooks/purity is an error, not a warning
 npm run build        # runs prisma generate + tsc
+npm run import:anki-collection -- "<…/Anki2/User 1/collection.anki2>" sv --dry-run
 ```

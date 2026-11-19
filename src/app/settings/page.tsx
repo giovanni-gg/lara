@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { activateProfile, updateProfileSettings } from "@/app/actions";
+import { signOut } from "@/app/login/actions";
 import { getActiveProfile } from "@/lib/session";
 import {
   CEFR_DESCRIPTIONS,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/languages";
 import { hasAiCredentials } from "@/lib/ai/model";
 import { ttsAvailable } from "@/lib/tts";
+import { SCHEDULER_SETTINGS } from "@/lib/srs";
 import {
   Button,
   ButtonLink,
@@ -34,8 +36,8 @@ export default async function SettingsPage() {
       />
 
       {profiles.length > 1 ? (
-        <section className="mb-6">
-          <h2 className="mb-3 font-display text-lg font-semibold">Language</h2>
+        <section className="mb-5">
+          <h2 className="mb-2 font-display text-base font-semibold">Language</h2>
           <ul className="space-y-2">
             {profiles.map((profile) => {
               const info = getLanguage(profile.targetLanguage);
@@ -69,9 +71,9 @@ export default async function SettingsPage() {
         </section>
       ) : null}
 
-      <section className="mb-6">
-        <h2 className="mb-3 font-display text-lg font-semibold">Study</h2>
-        <form action={updateProfileSettings} className="space-y-5">
+      <section className="mb-5">
+        <h2 className="mb-2 font-display text-base font-semibold">Study</h2>
+        <form action={updateProfileSettings} className="space-y-3">
           <Field
             label="Your level"
             hint={`Articles will be written at ${nextLevelUp(active.level)}.`}
@@ -105,7 +107,7 @@ export default async function SettingsPage() {
                 name="dailyReviewLimit"
                 type="number"
                 min={0}
-                max={2000}
+                max={9999}
                 defaultValue={active.dailyReviewLimit}
                 className={inputStyles}
               />
@@ -118,8 +120,8 @@ export default async function SettingsPage() {
         </form>
       </section>
 
-      <section className="mb-6">
-        <h2 className="mb-3 font-display text-lg font-semibold">
+      <section className="mb-5">
+        <h2 className="mb-2 font-display text-base font-semibold">
           Add a language
         </h2>
         <ButtonLink href="/onboarding" variant="secondary" className="w-full">
@@ -128,7 +130,7 @@ export default async function SettingsPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 font-display text-lg font-semibold">Status</h2>
+        <h2 className="mb-2 font-display text-base font-semibold">Status</h2>
         <Panel className="space-y-2 text-sm">
           <StatusRow
             label="Card & article generation"
@@ -143,10 +145,16 @@ export default async function SettingsPage() {
           <StatusRow
             label="Scheduler"
             ok
-            hint="FSRS-6, the algorithm behind Anki's modern scheduler"
+            hint={`FSRS-6 · ${Math.round(SCHEDULER_SETTINGS.desiredRetention * 100)}% retention · ${SCHEDULER_SETTINGS.learningSteps.join(" ")} steps · day starts ${SCHEDULER_SETTINGS.dayStartsAtHour}:00 — same as your Anki`}
           />
         </Panel>
       </section>
+
+      <form action={signOut} className="mt-5">
+        <Button type="submit" variant="ghost" className="w-full">
+          Sign out
+        </Button>
+      </form>
     </Screen>
   );
 }

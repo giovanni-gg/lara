@@ -4,9 +4,10 @@ import { BookOpen, Layers, Plus, Sparkles } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getActiveProfile } from "@/lib/session";
 import { profileStats, sessionSize } from "@/lib/study";
+import { loadDeckTree } from "@/lib/deck-tree";
+import { DeckTree } from "@/components/deck-tree";
 import { getLanguage } from "@/lib/languages";
 import {
-  Badge,
   ButtonLink,
   EmptyState,
   Panel,
@@ -23,40 +24,29 @@ export default async function TodayPage() {
   const stats = await profileStats(active.id);
   const toStudy = sessionSize(stats, active);
 
-  const [decks, unreadArticles] = await Promise.all([
-    prisma.deck.findMany({
-      where: { profileId: active.id },
-      orderBy: { updatedAt: "desc" },
-      take: 3,
-      select: {
-        id: true,
-        name: true,
-        emoji: true,
-        _count: { select: { cards: true } },
-      },
-    }),
-    prisma.article.findMany({
-      where: { profileId: active.id, readAt: null, status: "READY" },
-      orderBy: { createdAt: "desc" },
-      take: 2,
-      select: { id: true, title: true, level: true, wordCount: true },
-    }),
-  ]);
+  // Sequential: the tree runs an aggregate query (see AGENTS.md).
+  const { roots: decks } = await loadDeckTree(active.id);
+  const unreadArticles = await prisma.article.findMany({
+    where: { profileId: active.id, readAt: null, status: "READY" },
+    orderBy: { createdAt: "desc" },
+    take: 2,
+    select: { id: true, title: true, level: true, wordCount: true },
+  });
 
   return (
     <Screen>
-      <header className="flex items-center justify-between pt-6 pb-5">
+      <header className="flex items-center justify-between pt-4 pb-3">
         <div>
-          <p className="text-sm text-muted">
+          <p className="text-xs text-muted">
             {language.flag} {language.name} · {active.level}
           </p>
-          <h1 className="font-display text-3xl font-semibold tracking-tight">
+          <h1 className="font-display text-2xl font-semibold tracking-tight">
             Today
           </h1>
         </div>
         <Link
           href="/settings"
-          className="flex size-11 items-center justify-center rounded-full border border-line bg-surface text-xl"
+          className="flex size-10 items-center justify-center rounded-full border border-line bg-surface text-lg"
           aria-label="Settings"
         >
           {language.flag}
@@ -73,9 +63,9 @@ export default async function TodayPage() {
         <Stat value={stats.reviewedToday} label="Done" tone="good" />
       </div>
 
-      <div className="mt-4">
+      <div className="mt-3">
         {toStudy > 0 ? (
-          <ButtonLink href="/study" className="w-full min-h-14 text-base">
+          <ButtonLink href="/study" className="w-full min-h-12 text-base">
             <Sparkles className="size-5" aria-hidden />
             Study {toStudy} {toStudy === 1 ? "card" : "cards"}
           </ButtonLink>
@@ -94,15 +84,18 @@ export default async function TodayPage() {
       </div>
 
       {/* Prompt-to-deck — the reason this app exists on a phone. */}
-      <section className="mt-8">
-        <h2 className="mb-3 font-display text-lg font-semibold">Make cards</h2>
-        <GenerateDeckForm />
+      <section className="mt-6">
+        <h2 className="mb-2 font-display text-base font-semibold">Make cards</h2>
+        <GenerateDeckForm
+          targetName={language.name}
+          sourceName={getLanguage(active.sourceLanguage).name}
+        />
       </section>
 
       {unreadArticles.length > 0 ? (
-        <section className="mt-8">
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="font-display text-lg font-semibold">
+        <section className="mt-6">
+          <div className="mb-2 flex items-baseline justify-between">
+            <h2 className="font-display text-base font-semibold">
               Waiting to read
             </h2>
             <Link href="/articles" className="text-sm text-accent">
@@ -114,7 +107,7 @@ export default async function TodayPage() {
               <li key={article.id}>
                 <Link
                   href={`/articles/${article.id}`}
-                  className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4 active:border-accent/60"
+                  className="flex items-center gap-3 rounded-2xl border border-line bg-surface px-3.5 py-2.5 active:border-accent/60"
                 >
                   <BookOpen
                     className="size-5 shrink-0 text-accent"
@@ -135,9 +128,9 @@ export default async function TodayPage() {
         </section>
       ) : null}
 
-      <section className="mt-8">
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="font-display text-lg font-semibold">Recent decks</h2>
+      <section className="mt-6">
+        <div className="mb-2 flex items-baseline justify-between">
+          <h2 className="font-display text-base font-semibold">Decks</h2>
           <Link href="/decks" className="text-sm text-accent">
             All
           </Link>
@@ -155,24 +148,7 @@ export default async function TodayPage() {
             }
           />
         ) : (
-          <ul className="space-y-2">
-            {decks.map((deck) => (
-              <li key={deck.id}>
-                <Link
-                  href={`/decks/${deck.id}`}
-                  className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4 active:border-accent/60"
-                >
-                  <span className="text-2xl" aria-hidden>
-                    {deck.emoji ?? "🗂️"}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate font-medium">
-                    {deck.name}
-                  </span>
-                  <Badge>{deck._count.cards}</Badge>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <DeckTree roots={decks} openFolders="none" newLimit={active.dailyNewLimit} />
         )}
       </section>
     </Screen>

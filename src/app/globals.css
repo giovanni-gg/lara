@@ -66,6 +66,20 @@ body {
   padding-top: max(env(safe-area-inset-top), 0.5rem);
 }
 
+/* Deck groups (<details>): hide the native marker and show Anki's +/−.
+   The child combinator keeps a collapsed subgroup's sign from following an
+   expanded parent. */
+.deck-group > summary::-webkit-details-marker {
+  display: none;
+}
+.deck-group > summary .deck-open,
+.deck-group[open] > summary .deck-closed {
+  display: none;
+}
+.deck-group[open] > summary .deck-open {
+  display: inline;
+}
+
 /* The flip animation on the study card. */
 .card-flip {
   transform-style: preserve-3d;

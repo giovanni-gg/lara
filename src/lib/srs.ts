@@ -33,15 +33,61 @@ export const RATING_LABELS: Record<RatingValue, string> = {
   4: "Easy",
 };
 
+/**
+ * The scheduler settings, mirrored from the learner's Anki preset (decoded
+ * from their collection's deck config) so moving to Lara changes nothing about
+ * how cards come back. Deliberately not user-editable: Anki's dozens of knobs
+ * are what this app is getting away from. Daily limits live on the profile.
+ *
+ * FSRS parameters are ts-fsrs's FSRS-6 defaults — the Anki preset had never
+ * been optimised, so it ran on the same defaults (decay 0.1542).
+ */
+export const SCHEDULER_SETTINGS = {
+  /** "Aim to recall 85% of cards when they come due" (Anki default: 0.9). */
+  desiredRetention: 0.85,
+  learningSteps: ["10m"],
+  relearningSteps: ["10m"],
+  maximumIntervalDays: 36500,
+  /** Anki's "Next day starts at": review cards fall due from this hour, local time. */
+  dayStartsAtHour: 4,
+  /** Tag (don't suspend) a card as a leech after this many lapses, then every half again. */
+  leechThreshold: 8,
+  /** Anki's "Maximum answer seconds": longer answers are logged as this. */
+  maxAnswerSeconds: 60,
+} as const;
+
 const scheduler = fsrs(
   generatorParameters({
-    // 0.9 means "aim to recall 90% of cards at review time" — Anki's default.
-    request_retention: 0.9,
-    maximum_interval: 36500,
+    request_retention: SCHEDULER_SETTINGS.desiredRetention,
+    maximum_interval: SCHEDULER_SETTINGS.maximumIntervalDays,
+    learning_steps: SCHEDULER_SETTINGS.learningSteps,
+    relearning_steps: SCHEDULER_SETTINGS.relearningSteps,
     enable_fuzz: true,
     enable_short_term: true,
   }),
 );
+
+/**
+ * Anki counts review intervals in days that begin at `dayStartsAtHour`, so a
+ * card due "in 1 day" is available all of tomorrow, not from this exact minute
+ * tomorrow. Snap day-scale due dates back to the start of their study day so
+ * the day's due count is stable from the morning on. Uses the server's local
+ * time zone, which is the learner's while the app runs on their machine.
+ */
+function startOfStudyDay(date: Date): Date {
+  const start = new Date(date);
+  start.setHours(SCHEDULER_SETTINGS.dayStartsAtHour, 0, 0, 0);
+  if (start > date) start.setDate(start.getDate() - 1);
+  return start;
+}
+
+/** True when this answer pushes the card to (another) leech milestone. */
+export function isLeechMilestone(lapses: number, previousLapses: number): boolean {
+  const { leechThreshold } = SCHEDULER_SETTINGS;
+  if (lapses <= previousLapses || lapses < leechThreshold) return false;
+  const step = Math.max(1, Math.ceil(leechThreshold / 2));
+  return (lapses - leechThreshold) % step === 0;
+}
 
 // Prisma stores state as an enum for readability; ts-fsrs uses a numeric enum.
 const STATE_TO_FSRS: Record<FsrsState, State> = {
@@ -133,6 +179,11 @@ export function applyReview(
     rating as Grade,
   );
   const next = fromFsrsCard(updated);
+  // Day-scale intervals start at the study-day boundary; minute-scale
+  // learning steps keep their exact time.
+  if (next.state === FsrsState.REVIEW && next.scheduledDays >= 1) {
+    next.due = startOfStudyDay(next.due);
+  }
 
   return {
     next,
@@ -164,6 +215,40 @@ export function previewIntervals(
     3: record[Rating.Good].card.due,
     4: record[Rating.Easy].card.due,
   };
+}
+
+export type MemorySnapshot = {
+  state: FsrsState;
+  stability: number;
+  difficulty: number;
+  elapsedDays: number;
+  lastElapsedDays: number;
+};
+
+/**
+ * Replays a card's answer history from a blank card and returns the FSRS
+ * memory state after each answer. `history` must be in chronological order.
+ *
+ * Used when importing from Anki: its review log records ratings and intervals
+ * but not stability/difficulty, and cards reviewed before FSRS was switched on
+ * have no memory state at all.
+ */
+export function replayHistory(
+  history: { rating: RatingValue; reviewedAt: Date }[],
+): MemorySnapshot[] {
+  if (history.length === 0) return [];
+  let card = createEmptyCard(history[0].reviewedAt);
+  return history.map(({ rating, reviewedAt }) => {
+    const { card: next, log } = scheduler.next(card, reviewedAt, rating as Grade);
+    card = next;
+    return {
+      state: FSRS_TO_STATE[next.state],
+      stability: next.stability,
+      difficulty: next.difficulty,
+      elapsedDays: log.elapsed_days,
+      lastElapsedDays: log.last_elapsed_days,
+    };
+  });
 }
 
 /** 0–1 probability the learner still remembers this card right now. */

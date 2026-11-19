@@ -1,42 +1,78 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { createDeck } from "@/app/actions";
+import { getActiveProfile } from "@/lib/session";
+import { getLanguage } from "@/lib/languages";
+import { flattenWithPaths, loadDeckTree } from "@/lib/deck-tree";
+import { DirectionPicker } from "@/components/direction-picker";
 import { Button, Field, Screen, inputStyles } from "@/components/ui";
 
-export default function NewDeckPage() {
+export default async function NewDeckPage({ searchParams }: PageProps<"/decks/new">) {
+  const { parent } = await searchParams;
+  const { active } = await getActiveProfile();
+  if (!active) redirect("/onboarding");
+
+  const { roots, byId } = await loadDeckTree(active.id);
+  const folders = flattenWithPaths(roots);
+  const parentId = typeof parent === "string" && byId.has(parent) ? parent : "";
+  const parentNode = parentId ? byId.get(parentId) : undefined;
+
+  const target = getLanguage(active.targetLanguage).name;
+  const source = getLanguage(active.sourceLanguage).name;
+
   return (
     <Screen>
-      <div className="pt-5">
+      <div className="pt-4">
         <Link
-          href="/decks"
-          className="inline-flex items-center gap-1 text-sm text-muted"
+          href={parentId ? `/decks/${parentId}` : "/decks"}
+          className="inline-flex items-center gap-1 py-1 text-xs text-muted"
         >
-          <ChevronLeft className="size-4" aria-hidden />
-          Decks
+          <ChevronLeft className="size-3.5" aria-hidden />
+          {parentNode?.name ?? "Decks"}
         </Link>
       </div>
 
-      <h1 className="font-display mt-4 mb-6 text-3xl font-semibold tracking-tight">
-        New deck
+      <h1 className="font-display mt-1 mb-4 text-2xl font-semibold tracking-tight">
+        {parentNode ? "New subdeck" : "New deck"}
       </h1>
 
-      <form action={createDeck} className="space-y-5">
-        <Field label="Name">
-          <input
-            name="name"
-            required
-            placeholder="Kitchen vocabulary"
-            className={inputStyles}
-          />
-        </Field>
+      <form action={createDeck} className="space-y-3.5">
+        <div className="flex gap-2">
+          <div className="w-16 shrink-0">
+            <Field label="Emoji">
+              <input
+                name="emoji"
+                defaultValue="🗂️"
+                maxLength={4}
+                className={`${inputStyles} text-center`}
+              />
+            </Field>
+          </div>
+          <div className="min-w-0 flex-1">
+            <Field label="Name">
+              <input
+                name="name"
+                required
+                autoFocus
+                placeholder="Kitchen vocabulary"
+                className={inputStyles}
+              />
+            </Field>
+          </div>
+        </div>
 
-        <Field label="Emoji" hint="Shows next to the deck name.">
-          <input
-            name="emoji"
-            defaultValue="🗂️"
-            maxLength={4}
-            className={inputStyles}
-          />
+        <Field label="Inside">
+          <select name="parentId" defaultValue={parentId} className={inputStyles}>
+            <option value="">Top level</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {/* Non-breaking spaces survive in <option>; regular ones collapse. */}
+                {"  ".repeat(f.depth)}
+                {f.label}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <Field label="Description" hint="Optional.">
@@ -47,7 +83,12 @@ export default function NewDeckPage() {
           />
         </Field>
 
-        <Button type="submit" className="w-full min-h-13">
+        <div>
+          <span className="mb-1 block text-sm font-medium">New cards show</span>
+          <DirectionPicker target={target} source={source} />
+        </div>
+
+        <Button type="submit" className="w-full">
           Create deck
         </Button>
       </form>

@@ -8,6 +8,8 @@ import { getLanguage } from "@/lib/languages";
 import { newCardState } from "@/lib/srs";
 import { trySynthesize, ttsAvailable } from "@/lib/tts";
 import { CefrLevel } from "@/generated/prisma/enums";
+import { cardTypesFor, isCardDirection } from "@/lib/card-direction";
+import { subtreeIds } from "@/lib/deck-tree";
 
 export async function createProfile(formData: FormData) {
   const user = await getCurrentUser();
@@ -77,7 +79,8 @@ export async function updateProfileSettings(formData: FormData) {
     data: {
       level,
       dailyNewLimit: clamp(dailyNewLimit, 0, 500),
-      dailyReviewLimit: clamp(dailyReviewLimit, 0, 2000),
+      // Anki's "9999 reviews/day" means "no cap"; allow it.
+      dailyReviewLimit: clamp(dailyReviewLimit, 0, 9999),
     },
   });
 
@@ -89,18 +92,59 @@ export async function createDeck(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Give the deck a name");
 
+  const direction = formData.get("direction");
+  const parentId = String(formData.get("parentId") ?? "") || null;
+  if (parentId) {
+    const parent = await prisma.deck.findFirst({
+      where: { id: parentId, profileId: profile.id },
+      select: { id: true },
+    });
+    if (!parent) throw new Error("Folder not found");
+  }
+
   const deck = await prisma.deck.create({
     data: {
       userId: user.id,
       profileId: profile.id,
+      parentId,
       name,
       emoji: String(formData.get("emoji") ?? "").trim() || "🗂️",
       description: String(formData.get("description") ?? "").trim() || null,
+      direction: isCardDirection(direction) ? direction : "RECOGNITION",
     },
   });
 
   revalidatePath("/decks");
   redirect(`/decks/${deck.id}`);
+}
+
+/** Put a deck inside another (or back at the top level with an empty parent). */
+export async function moveDeck(formData: FormData) {
+  const { profile } = await requireActiveProfile();
+  const deckId = String(formData.get("deckId") ?? "");
+  const parentId = String(formData.get("parentId") ?? "") || null;
+
+  const deck = await prisma.deck.findFirst({
+    where: { id: deckId, profileId: profile.id },
+    select: { id: true },
+  });
+  if (!deck) throw new Error("Deck not found");
+
+  if (parentId) {
+    // A deck can't go inside itself or anything beneath it.
+    if ((await subtreeIds(profile.id, deck.id)).includes(parentId)) {
+      throw new Error("A deck can't be moved into one of its own subdecks");
+    }
+    const parent = await prisma.deck.findFirst({
+      where: { id: parentId, profileId: profile.id },
+      select: { id: true },
+    });
+    if (!parent) throw new Error("Folder not found");
+  }
+
+  await prisma.deck.update({ where: { id: deck.id }, data: { parentId } });
+  revalidatePath("/decks");
+  revalidatePath(`/decks/${deck.id}`);
 }
 
 export async function createCard(formData: FormData) {
@@ -118,6 +162,9 @@ export async function createCard(formData: FormData) {
   });
   if (!deck) throw new Error("Deck not found");
 
+  const requested = formData.get("direction");
+  const cardTypes = cardTypesFor(isCardDirection(requested) ? requested : deck.direction);
+
   const targetSentence =
     String(formData.get("targetSentence") ?? "").trim() || null;
 
@@ -129,18 +176,22 @@ export async function createCard(formData: FormData) {
       })
     : null;
 
-  await prisma.card.create({
-    data: {
+  const sourceSentence = String(formData.get("sourceSentence") ?? "").trim() || null;
+  const notes = String(formData.get("notes") ?? "").trim() || null;
+
+  await prisma.card.createMany({
+    data: cardTypes.map((cardType) => ({
       userId: user.id,
       deckId,
       target,
       source,
       targetSentence,
-      sourceSentence: String(formData.get("sourceSentence") ?? "").trim() || null,
-      notes: String(formData.get("notes") ?? "").trim() || null,
+      sourceSentence,
+      notes,
+      cardType,
       audioUrl,
       ...newCardState(),
-    },
+    })),
   });
 
   revalidatePath(`/decks/${deckId}`);

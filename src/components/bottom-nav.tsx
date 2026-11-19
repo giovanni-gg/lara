@@ -15,8 +15,8 @@ const TABS = [
 export function BottomNav() {
   const pathname = usePathname();
 
-  // The study screen wants the whole display.
-  if (pathname.startsWith("/study")) return null;
+  // The study screen wants the whole display; the login screen has nowhere to go.
+  if (pathname.startsWith("/study") || pathname === "/login") return null;
 
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-line bg-surface/95 backdrop-blur-lg pb-safe">

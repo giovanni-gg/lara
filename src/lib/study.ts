@@ -1,6 +1,12 @@
 import { prisma } from "./db";
 import { FsrsState } from "@/generated/prisma/enums";
-import { applyReview, previewIntervals, type RatingValue } from "./srs";
+import {
+  SCHEDULER_SETTINGS,
+  applyReview,
+  isLeechMilestone,
+  previewIntervals,
+  type RatingValue,
+} from "./srs";
 
 /**
  * Builds a study queue the way Anki does: due reviews first (they decay if you
@@ -45,14 +51,17 @@ const CARD_SELECT = {
   lapses: true,
   learningSteps: true,
   lastReview: true,
-  deck: { select: { name: true } },
+  deck: { select: { name: true, parent: { select: { name: true } } } },
 } as const;
 
 export type BuildQueueOptions = {
   userId: string;
   profileId: string;
-  /** Restrict to one deck; omit to study everything in the profile. */
-  deckId?: string;
+  /**
+   * Restrict to these decks — a deck plus its subdecks, from `subtreeIds`.
+   * Omit to study everything in the profile.
+   */
+  deckIds?: string[];
   reviewLimit?: number;
   newLimit?: number;
   now?: Date;
@@ -66,7 +75,7 @@ export type BuildQueueOptions = {
 export async function buildQueue({
   userId,
   profileId,
-  deckId,
+  deckIds,
   reviewLimit = 200,
   newLimit = 20,
   now = new Date(),
@@ -74,7 +83,7 @@ export async function buildQueue({
   const where = {
     userId,
     suspended: false,
-    deck: deckId ? { id: deckId, profileId } : { profileId },
+    deck: deckIds ? { id: { in: deckIds }, profileId } : { profileId },
   };
 
   const [due, fresh] = await Promise.all([
@@ -110,7 +119,9 @@ export async function buildQueue({
       sentenceAudioUrl: card.sentenceAudioUrl,
       imageUrl: card.imageUrl,
       state: card.state,
-      deckName: card.deck.name,
+      deckName: card.deck.parent
+        ? `${card.deck.parent.name} · ${card.deck.name}`
+        : card.deck.name,
       intervals: {
         1: describeInterval(previews[1], now),
         2: describeInterval(previews[2], now),
@@ -153,10 +164,23 @@ export async function submitReview({
 
   const { next, log } = applyReview(card, rating, now);
 
+  // Anki's leech handling, tag-only: flag cards that keep lapsing so they can
+  // be rewritten, without pulling them out of rotation.
+  const tags =
+    isLeechMilestone(next.lapses, card.lapses) && !card.tags.includes("leech")
+      ? [...card.tags, "leech"]
+      : card.tags;
+
+  // Walking away mid-card shouldn't log a ten-minute answer.
+  const cappedDuration =
+    durationMs === undefined
+      ? undefined
+      : Math.min(durationMs, SCHEDULER_SETTINGS.maxAnswerSeconds * 1000);
+
   const [updated] = await prisma.$transaction([
-    prisma.card.update({ where: { id: card.id }, data: next }),
+    prisma.card.update({ where: { id: card.id }, data: { ...next, tags } }),
     prisma.review.create({
-      data: { cardId: card.id, userId, durationMs, reviewedAt: now, ...log },
+      data: { cardId: card.id, userId, durationMs: cappedDuration, reviewedAt: now, ...log },
     }),
   ]);
 
@@ -165,8 +189,10 @@ export async function submitReview({
 
 export type DeckStats = {
   total: number;
+  /** Everything due now: learning + review. */
   due: number;
   fresh: number;
+  /** Learning/relearning cards due now — Anki's "Learn" column. */
   learning: number;
 };
 
@@ -186,6 +212,7 @@ export async function deckStats(
       count(*) FILTER (WHERE c.state = 'NEW'::"FsrsState")::int AS fresh,
       count(*) FILTER (
         WHERE c.state IN ('LEARNING'::"FsrsState", 'RELEARNING'::"FsrsState")
+          AND c.due <= ${now}
       )::int AS learning
     FROM "Card" c
     WHERE c."deckId" = ${deckId} AND c.suspended = false
@@ -230,6 +257,7 @@ export async function statsByDeck(
       count(*) FILTER (WHERE c.state = 'NEW'::"FsrsState")::int AS fresh,
       count(*) FILTER (
         WHERE c.state IN ('LEARNING'::"FsrsState", 'RELEARNING'::"FsrsState")
+          AND c.due <= ${now}
       )::int AS learning
     FROM "Card" c
     JOIN "Deck" d ON d.id = c."deckId"

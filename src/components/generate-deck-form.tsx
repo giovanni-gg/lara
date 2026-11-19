@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Wand2 } from "lucide-react";
 import { Button, inputStyles } from "@/components/ui";
+import { DirectionPicker, type Direction } from "@/components/direction-picker";
 
 const SUGGESTIONS = [
   "ordering food at a restaurant",
@@ -17,10 +18,22 @@ const SUGGESTIONS = [
  * Prompt-to-deck. This is the whole point of moving off the desktop script:
  * describe what you want, get cards with audio, study immediately.
  */
-export function GenerateDeckForm({ deckId }: { deckId?: string }) {
+export function GenerateDeckForm({
+  deckId,
+  targetName,
+  sourceName,
+  defaultDirection = "RECOGNITION",
+}: {
+  deckId?: string;
+  targetName: string;
+  sourceName: string;
+  /** The deck's own default when adding to one. */
+  defaultDirection?: Direction;
+}) {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(15);
+  const [direction, setDirection] = useState<Direction>(defaultDirection);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -37,7 +50,7 @@ export function GenerateDeckForm({ deckId }: { deckId?: string }) {
       const response = await fetch("/api/decks/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim(), count, deckId }),
+        body: JSON.stringify({ prompt: prompt.trim(), count, deckId, direction }),
       });
       const data = await response.json();
 
@@ -61,7 +74,7 @@ export function GenerateDeckForm({ deckId }: { deckId?: string }) {
   }
 
   return (
-    <form onSubmit={submit} className="rounded-2xl border border-line bg-surface p-4">
+    <form onSubmit={submit} className="rounded-2xl border border-line bg-surface p-3">
       <textarea
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
@@ -71,20 +84,28 @@ export function GenerateDeckForm({ deckId }: { deckId?: string }) {
         aria-label="Describe the cards to generate"
       />
 
-      <div className="no-scrollbar -mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-1">
+      <div className="no-scrollbar -mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
         {SUGGESTIONS.map((suggestion) => (
           <button
             key={suggestion}
             type="button"
             onClick={() => setPrompt(suggestion)}
-            className="shrink-0 rounded-full border border-line px-3 py-1.5 text-xs text-muted active:border-accent/60"
+            className="shrink-0 rounded-full border border-line px-2.5 py-1 text-xs text-muted active:border-accent/60"
           >
             {suggestion}
           </button>
         ))}
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
+      <DirectionPicker
+        target={targetName}
+        source={sourceName}
+        value={direction}
+        onChange={setDirection}
+        className="mt-2"
+      />
+
+      <div className="mt-2 flex items-center gap-2">
         <label className="flex items-center gap-2 text-sm text-muted">
           Cards
           <select
@@ -99,7 +120,7 @@ export function GenerateDeckForm({ deckId }: { deckId?: string }) {
             ))}
           </select>
         </label>
-        <Button type="submit" disabled={busy || !prompt.trim()} className="flex-1">
+        <Button type="submit" size="sm" disabled={busy || !prompt.trim()} className="flex-1">
           {busy ? (
             <>
               <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -115,12 +136,12 @@ export function GenerateDeckForm({ deckId }: { deckId?: string }) {
       </div>
 
       {busy ? (
-        <p className="mt-3 text-xs text-muted">
+        <p className="mt-2 text-xs text-muted">
           Writing cards and recording audio — this takes a few seconds per card.
         </p>
       ) : null}
-      {error ? <p className="mt-3 text-sm text-again">{error}</p> : null}
-      {result ? <p className="mt-3 text-sm text-good">{result}</p> : null}
+      {error ? <p className="mt-2 text-sm text-again">{error}</p> : null}
+      {result ? <p className="mt-2 text-sm text-good">{result}</p> : null}
     </form>
   );
 }

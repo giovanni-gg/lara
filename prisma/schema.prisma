@@ -84,15 +84,30 @@ model Deck {
   /// later with the same intent.
   sourcePrompt String?
 
+  /// Which way new cards in this deck face by default. Each card still carries
+  /// its own `cardType`, so a deck can mix directions (imported Anki decks do).
+  direction CardDirection @default(RECOGNITION)
+
+  /// Anki deck id, for decks brought over by `scripts/import-anki.ts`.
+  ankiId BigInt?
+
+  /// Folder this deck sits in, like Anki's "Parent::Child". A deck can hold
+  /// cards *and* subdecks; studying it includes everything beneath it.
+  /// Deleting a deck deletes its subdecks, as in Anki.
+  parentId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  profile LanguageProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  cards   Card[]
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile  LanguageProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  parent   Deck?           @relation("DeckTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children Deck[]          @relation("DeckTree")
+  cards    Card[]
 
   @@index([userId])
   @@index([profileId])
+  @@index([parentId])
 }
 
 model Card {
@@ -127,6 +142,10 @@ model Card {
   lastReview    DateTime?
 
   suspended Boolean  @default(false)
+
+  /// Anki card id, for cards brought over by `scripts/import-anki.ts`.
+  ankiId BigInt? @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -173,6 +192,16 @@ enum CardType {
   CLOZE
   /// Type the target from memory
   TYPING
+  /// See the picture (`imageUrl`) -> produce target
+  PICTURE
+}
+
+/// The default facing for cards added to a deck. BOTH adds one RECOGNITION
+/// and one PRODUCTION card per word, like Anki's "Basic (and reversed card)".
+enum CardDirection {
+  RECOGNITION
+  PRODUCTION
+  BOTH
 }
 
 enum FsrsState {
@@ -202,6 +231,10 @@ model Review {
 
   durationMs Int? // time spent on the card
   reviewedAt DateTime @default(now())
+
+  /// Anki revlog id for history imported from Anki; null for reviews done in
+  /// Lara. The importer uses this to refuse wiping Lara-native progress.
+  ankiId BigInt? @unique
 
   card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -6,6 +6,7 @@ import { generateCards } from "@/lib/ai/cards";
 import { MissingAiCredentialsError } from "@/lib/ai/model";
 import { newCardState } from "@/lib/srs";
 import { trySynthesize, ttsAvailable } from "@/lib/tts";
+import { cardTypesFor } from "@/lib/card-direction";
 
 const body = z.object({
   prompt: z.string().min(3).max(500),
@@ -13,6 +14,8 @@ const body = z.object({
   /** Add to an existing deck instead of creating one. */
   deckId: z.string().optional(),
   withAudio: z.boolean().default(true),
+  /** Which side faces first. Defaults to the deck's own setting. */
+  direction: z.enum(["RECOGNITION", "PRODUCTION", "BOTH"]).optional(),
 });
 
 export const maxDuration = 300;
@@ -25,7 +28,7 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { prompt, count, deckId, withAudio } = parsed.data;
+  const { prompt, count, deckId, withAudio, direction: requested } = parsed.data;
 
   let user, profile;
   try {
@@ -75,6 +78,7 @@ export async function POST(request: Request) {
           emoji: batch.emoji,
           description: prompt,
           sourcePrompt: prompt,
+          direction: requested ?? "RECOGNITION",
         },
       });
 
@@ -87,6 +91,7 @@ export async function POST(request: Request) {
   const fresh = batch.cards.filter((c) => !seen.has(c.target.toLowerCase()));
 
   const shouldSpeak = withAudio && ttsAvailable();
+  const cardTypes = cardTypesFor(requested ?? deck.direction);
 
   // Sequential on purpose. Fanning these out hammers the ElevenLabs rate limit
   // (the original Python script capped itself at 4 workers for the same
@@ -112,24 +117,28 @@ export async function POST(request: Request) {
       }
     }
 
-    created.push(
-      await prisma.card.create({
-        data: {
-          userId: user.id,
-          deckId: deck.id,
-          target: card.target,
-          source: card.source,
-          targetSentence: card.targetSentence || null,
-          sourceSentence: card.sourceSentence || null,
-          notes: card.notes || null,
-          tags: card.tags,
-          audioUrl,
-          sentenceAudioUrl,
-          ...newCardState(),
-        },
-        select: { id: true, target: true, source: true },
-      }),
-    );
+    // "Both" is one card per direction, sharing the same audio.
+    for (const cardType of cardTypes) {
+      created.push(
+        await prisma.card.create({
+          data: {
+            userId: user.id,
+            deckId: deck.id,
+            target: card.target,
+            source: card.source,
+            targetSentence: card.targetSentence || null,
+            sourceSentence: card.sourceSentence || null,
+            notes: card.notes || null,
+            tags: card.tags,
+            cardType,
+            audioUrl,
+            sentenceAudioUrl,
+            ...newCardState(),
+          },
+          select: { id: true, target: true, source: true },
+        }),
+      );
+    }
   }
 
   return NextResponse.json({

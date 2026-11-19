@@ -3,7 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { getLanguage } from "@/lib/languages";
 import { createCard } from "@/app/actions";
+import { DirectionPicker } from "@/components/direction-picker";
 import { Button, Field, Screen, inputStyles } from "@/components/ui";
 
 export default async function NewCardPage({
@@ -14,9 +16,17 @@ export default async function NewCardPage({
 
   const deck = await prisma.deck.findFirst({
     where: { id: deckId, userId: user.id },
-    select: { id: true, name: true },
+    select: {
+      id: true,
+      name: true,
+      direction: true,
+      profile: { select: { targetLanguage: true, sourceLanguage: true } },
+    },
   });
   if (!deck) notFound();
+
+  const target = getLanguage(deck.profile.targetLanguage).name;
+  const source = getLanguage(deck.profile.sourceLanguage).name;
 
   async function submit(formData: FormData) {
     "use server";
@@ -26,44 +36,54 @@ export default async function NewCardPage({
 
   return (
     <Screen>
-      <div className="pt-5">
+      <div className="pt-4">
         <Link
           href={`/decks/${deck.id}`}
-          className="inline-flex items-center gap-1 text-sm text-muted"
+          className="inline-flex max-w-full items-center gap-1 py-1 text-xs text-muted"
         >
-          <ChevronLeft className="size-4" aria-hidden />
-          {deck.name}
+          <ChevronLeft className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate">{deck.name}</span>
         </Link>
       </div>
 
-      <h1 className="font-display mt-4 mb-6 text-3xl font-semibold tracking-tight">
+      <h1 className="font-display mt-1 mb-4 text-2xl font-semibold tracking-tight">
         New card
       </h1>
 
-      <form action={submit} className="space-y-5">
+      <form action={submit} className="space-y-3.5">
         <input type="hidden" name="deckId" value={deck.id} />
 
-        <Field label="Target language" hint="The word or phrase you're learning.">
+        <Field label={target}>
           <input name="target" required autoFocus className={inputStyles} />
         </Field>
 
-        <Field label="Translation">
+        <Field label={source}>
           <input name="source" required className={inputStyles} />
         </Field>
 
-        <Field label="Example sentence" hint="Optional, in the target language.">
+        <Field label="Example sentence" hint={`Optional, in ${target}.`}>
           <input name="targetSentence" className={inputStyles} />
         </Field>
 
-        <Field label="Sentence translation" hint="Optional.">
-          <input name="sourceSentence" className={inputStyles} />
+        <Field label="Sentence translation">
+          <input name="sourceSentence" placeholder="Optional" className={inputStyles} />
         </Field>
 
-        <Field label="Note" hint="Gender, irregular form, anything easy to forget.">
-          <input name="notes" className={inputStyles} />
+        <Field label="Note">
+          <textarea
+            name="notes"
+            rows={2}
+            placeholder="Gender, irregular form, anything easy to forget"
+            className={`${inputStyles} resize-y`}
+          />
         </Field>
 
-        <Button type="submit" className="w-full min-h-13">
+        <div>
+          <span className="mb-1 block text-sm font-medium">Show first</span>
+          <DirectionPicker target={target} source={source} defaultValue={deck.direction} />
+        </div>
+
+        <Button type="submit" className="w-full">
           Add card
         </Button>
         <p className="text-center text-xs text-muted">
