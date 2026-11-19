@@ -272,8 +272,8 @@ export function StudySession({
           >
             Study more
           </Button>
-          <ButtonLink href="/" variant="secondary">
-            Back to today
+          <ButtonLink href="/decks" variant="secondary">
+            Back to decks
           </ButtonLink>
         </div>
       </div>
@@ -305,7 +305,7 @@ export function StudySession({
       {/* Progress + exit */}
       <div className="flex items-center gap-3 py-2">
         <Link
-          href="/"
+          href="/decks"
           aria-label="End session"
           className="-ml-1 flex size-9 items-center justify-center rounded-full text-muted active:bg-raised"
         >

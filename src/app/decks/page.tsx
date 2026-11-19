@@ -1,17 +1,23 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Archive, Layers, Plus } from "lucide-react";
+import { Archive, Layers, Plus, Sparkles } from "lucide-react";
 import { getActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { loadDeckTree } from "@/lib/deck-tree";
 import { DeckTree } from "@/components/deck-tree";
 import { unarchiveDeck } from "@/app/actions";
-import { ButtonLink, EmptyState, PageHeader, Screen } from "@/components/ui";
+import { ButtonLink, EmptyState, PageHeader, Panel, Screen, Stat } from "@/components/ui";
+import { profileStats, sessionSize } from "@/lib/study";
+import { getLanguage } from "@/lib/languages";
 
 export default async function DecksPage() {
   const { active } = await getActiveProfile();
   if (!active) redirect("/onboarding");
 
+  // Sequential: both run aggregate queries (see AGENTS.md).
+  const stats = await profileStats(active.id);
+  const toStudy = sessionSize(stats);
+  const language = getLanguage(active.targetLanguage);
   const { roots, archivedRoots } = await loadDeckTree(active.id);
   const count = (nodes: typeof roots): number =>
     nodes.reduce((n, node) => n + 1 + count(node.children), 0);
@@ -38,7 +44,7 @@ export default async function DecksPage() {
     <Screen>
       <PageHeader
         title="Decks"
-        subtitle={`${decks} ${decks === 1 ? "deck" : "decks"} · ${due} due · ${fresh} new today`}
+        subtitle={`${language.flag} ${language.name} · ${active.level} · ${decks} ${decks === 1 ? "deck" : "decks"}`}
         action={
           <ButtonLink href="/decks/new" variant="secondary" size="sm" className="shrink-0">
             <Plus className="size-4" aria-hidden />
@@ -47,12 +53,31 @@ export default async function DecksPage() {
         }
       />
 
+      {/* The day at a glance, then the one button that matters. */}
+      <div className="flex gap-2">
+        <Stat value={due} label="Due" tone={due > 0 ? "accent" : "default"} />
+        <Stat value={fresh} label="New" />
+        <Stat value={stats.reviewedToday} label="Done" tone="good" />
+      </div>
+      <div className="mt-3 mb-5">
+        {toStudy > 0 ? (
+          <ButtonLink href="/study" className="w-full min-h-12 text-base">
+            <Sparkles className="size-5" aria-hidden />
+            Study {toStudy} {toStudy === 1 ? "card" : "cards"}
+          </ButtonLink>
+        ) : stats.total > 0 ? (
+          <Panel className="text-center text-sm text-muted">
+            All caught up — nothing is due right now.
+          </Panel>
+        ) : null}
+      </div>
+
       {roots.length === 0 ? (
         <EmptyState
           icon={<Layers className="size-8" aria-hidden />}
           title="No decks yet"
-          body="Generate one from a prompt on the Today screen, or create an empty deck and add cards yourself."
-          action={<ButtonLink href="/">Go to Today</ButtonLink>}
+          body="Generate a deck from a prompt, or create an empty one and add cards yourself."
+          action={<ButtonLink href="/decks/new">New deck</ButtonLink>}
         />
       ) : (
         <DeckTree roots={roots} />

@@ -7,6 +7,7 @@ import { getLanguage } from "@/lib/languages";
 import { flattenWithPaths, loadDeckTree } from "@/lib/deck-tree";
 import { DirectionPicker } from "@/components/direction-picker";
 import { Button, Field, Screen, inputStyles } from "@/components/ui";
+import { GenerateDeckForm } from "@/components/generate-deck-form";
 
 export default async function NewDeckPage({ searchParams }: PageProps<"/decks/new">) {
   const { parent } = await searchParams;
@@ -36,6 +37,15 @@ export default async function NewDeckPage({ searchParams }: PageProps<"/decks/ne
       <h1 className="font-display mt-1 mb-4 text-2xl font-semibold tracking-tight">
         {parentNode ? "New subdeck" : "New deck"}
       </h1>
+
+      {parentNode ? null : (
+        // The quick path: describe it, get a finished deck with audio.
+        <section className="mb-6">
+          <h2 className="mb-2 font-display text-base font-semibold">Generate with AI</h2>
+          <GenerateDeckForm targetName={target} sourceName={source} />
+          <p className="mt-4 text-center text-xs uppercase tracking-wide text-muted">or start empty</p>
+        </section>
+      )}
 
       <form action={createDeck} className="space-y-3.5">
         <div className="flex gap-2">

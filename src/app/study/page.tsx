@@ -36,8 +36,8 @@ export default async function StudyPage({
               something in the meantime.
             </p>
           </div>
-          <ButtonLink href="/" variant="secondary">
-            Back to today
+          <ButtonLink href="/decks" variant="secondary">
+            Back to decks
           </ButtonLink>
         </div>
       </Screen>

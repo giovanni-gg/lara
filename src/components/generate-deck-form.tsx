@@ -65,6 +65,11 @@ export function GenerateDeckForm({
           (data.audio ? "" : " — no audio, ELEVENLABS_API_KEY is unset"),
       );
       setPrompt("");
+      // A brand-new deck: open it. Adding to an existing deck: stay and refresh.
+      if (!deckId) {
+        router.push(`/decks/${data.deck.id}`);
+        return;
+      }
       router.refresh();
     } catch {
       setError("Could not reach the server");

@@ -2,14 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookHeadphones, Layers, Mic, Settings, Sparkles } from "lucide-react";
+import { BookHeadphones, Layers, Mic, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Five tabs on a 375 px phone leave ~75 px each, so labels stay one short word.
+// Decks is home ("/" redirects there). Four tabs leave room for full labels.
 const TABS = [
-  { href: "/", label: "Today", icon: Sparkles },
   { href: "/decks", label: "Decks", icon: Layers },
-  { href: "/articles", label: "Listen", icon: BookHeadphones },
+  { href: "/articles", label: "Listen & Read", icon: BookHeadphones },
   { href: "/speak", label: "Speak", icon: Mic },
   { href: "/settings", label: "You", icon: Settings },
 ] as const;
@@ -24,8 +23,7 @@ export function BottomNav() {
     <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-line bg-surface/95 backdrop-blur-lg pb-safe">
       <ul className="mx-auto flex max-w-md">
         {TABS.map(({ href, label, icon: Icon }) => {
-          const active =
-            href === "/" ? pathname === "/" : pathname.startsWith(href);
+          const active = pathname.startsWith(href);
           return (
             <li key={href} className="flex-1">
               <Link
