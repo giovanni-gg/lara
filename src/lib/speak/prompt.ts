@@ -192,8 +192,8 @@ export function resumeLine(targetLanguage: string): string {
 
 /** Slower for beginners, natural speed once they can take it. */
 export function speechSpeed(level: CefrLevel): number {
-  if (level === "A1" || level === "A2") return 0.9;
-  if (level === "B1" || level === "B2") return 0.95;
+  // Only a touch slower for beginners: slowed speech sounds mechanical.
+  if (level === "A1" || level === "A2") return 0.95;
   return 1;
 }
 

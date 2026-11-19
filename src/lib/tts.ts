@@ -73,7 +73,7 @@ export async function synthesize({
       },
       body: JSON.stringify({
         text: trimmed,
-        model_id: process.env.ELEVENLABS_MODEL_ID ?? "eleven_turbo_v2_5",
+        model_id: process.env.ELEVENLABS_MODEL_ID ?? "eleven_v4_turbo",
         voice_settings: {
           stability: STABILITY,
           similarity_boost: SIMILARITY_BOOST,

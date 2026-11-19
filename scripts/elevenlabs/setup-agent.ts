@@ -39,7 +39,9 @@ const DRY_RUN = process.argv.includes("--dry-run");
  */
 const LLM = "gemini-3.5-flash";
 const REASONING_EFFORT = "minimal";
-const TTS_MODEL = "eleven_flash_v2_5";
+// "Fastest and most emotive, optimized for low latency" — more natural than
+// eleven_flash_v2_5 at the same latency class and the same credit cost (x0.5).
+const TTS_MODEL = "eleven_v4_turbo";
 
 /** The agent's own default voice; every session overrides it with the learner's. */
 const DEFAULT_VOICE = getLanguage("sv").voiceId!;

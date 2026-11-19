@@ -9,7 +9,9 @@ export type LanguageInfo = {
 };
 
 export const LANGUAGES: LanguageInfo[] = [
-  { code: "sv", name: "Swedish", flag: "🇸🇪", voiceId: "aSLKtNoVBZlxQEMsnGL2" },
+  // Olivia — a conversational Stockholm voice (ElevenLabs library). Replaced
+  // "Sanna – Calm and Soothing", a narration voice that sounded flat in Speak.
+  { code: "sv", name: "Swedish", flag: "🇸🇪", voiceId: "cLAH1kXlkAivJHxCW601" },
   { code: "pt", name: "Portuguese", flag: "🇧🇷", voiceId: "QJd9SLe6MVCdF6DR0EAu" },
   { code: "es", name: "Spanish", flag: "🇪🇸" },
   { code: "de", name: "German", flag: "🇩🇪" },
