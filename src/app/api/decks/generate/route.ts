@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireActiveProfile } from "@/lib/session";
@@ -7,6 +7,8 @@ import { MissingAiCredentialsError } from "@/lib/ai/model";
 import { newCardState } from "@/lib/srs";
 import { trySynthesize, ttsAvailable } from "@/lib/tts";
 import { cardTypesFor } from "@/lib/card-direction";
+import { generateCardImage, imagesAvailable } from "@/lib/images";
+import { CardType } from "@/generated/prisma/enums";
 
 const body = z.object({
   prompt: z.string().min(3).max(500),
@@ -15,16 +17,29 @@ const body = z.object({
   deckId: z.string().optional(),
   withAudio: z.boolean().default(true),
   /** Which side faces first. Defaults to the deck's own setting. */
-  direction: z.enum(["RECOGNITION", "PRODUCTION", "BOTH"]).optional(),
+  direction: z.enum(["RECOGNITION", "PRODUCTION", "BOTH", "PICTURE"]).optional(),
 });
 
+// Audio is recorded before the response; pictures are drawn in `after()`,
+// inside the same budget.
 export const maxDuration = 300;
 
+/** Pictures drawn at once: Gemini takes several seconds per image. */
+const IMAGE_CONCURRENCY = 3;
+/** The most pictures one request draws (the form offers up to 40 cards). */
+const MAX_IMAGES = 40;
+/**
+ * No new picture starts after this point in the request. One image, retries
+ * included, takes at most ~100 s, so the last ones still land before 300 s.
+ */
+const IMAGE_START_DEADLINE_MS = 180_000;
+
 export async function POST(request: Request) {
+  const started = Date.now();
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Expected { prompt, count?, deckId?, withAudio? }" },
+      { error: "Expected { prompt, count?, deckId?, withAudio?, direction? }" },
       { status: 400 },
     );
   }
@@ -141,11 +156,43 @@ export async function POST(request: Request) {
     }
   }
 
+  // Picture cards are studied right away (they fall back to the translation
+  // until their picture lands), so drawing never holds up the response.
+  const wantsPictures = cardTypes.includes(CardType.PICTURE);
+  const drawing = wantsPictures && imagesAvailable();
+  if (wantsPictures && !drawing) {
+    console.warn("[decks/generate] GEMINI_API_KEY is not set: picture cards created without pictures");
+  }
+  if (drawing) {
+    const languages = {
+      targetLanguage: profile.targetLanguage,
+      sourceLanguage: profile.sourceLanguage,
+    };
+    const queue = created.slice(0, MAX_IMAGES);
+    after(async () => {
+      const worker = async () => {
+        for (let card = queue.shift(); card; card = queue.shift()) {
+          if (Date.now() - started > IMAGE_START_DEADLINE_MS) {
+            console.warn(`[decks/generate] out of time: ${queue.length + 1} pictures not drawn`);
+            queue.length = 0;
+            return;
+          }
+          const imageUrl = await generateCardImage({ ...languages, target: card.target, source: card.source });
+          // updateMany: the card may have been deleted while its picture was drawn.
+          if (imageUrl) await prisma.card.updateMany({ where: { id: card.id }, data: { imageUrl } });
+        }
+      };
+      await Promise.all(Array.from({ length: IMAGE_CONCURRENCY }, worker));
+    });
+  }
+
   return NextResponse.json({
     deck: { id: deck.id, name: deck.name, emoji: deck.emoji },
     created: created.length,
     skipped: batch.cards.length - fresh.length,
     audio: shouldSpeak,
+    /** "drawing" while pictures are drawn after the response; null for word cards. */
+    pictures: wantsPictures ? (drawing ? "drawing" : "unavailable") : null,
     cards: created,
   });
 }
