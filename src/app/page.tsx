@@ -22,7 +22,7 @@ export default async function TodayPage() {
 
   const language = getLanguage(active.targetLanguage);
   const stats = await profileStats(active.id);
-  const toStudy = sessionSize(stats, active);
+  const toStudy = sessionSize(stats);
 
   // Sequential: the tree runs an aggregate query (see AGENTS.md).
   const { roots: decks } = await loadDeckTree(active.id);
@@ -59,7 +59,7 @@ export default async function TodayPage() {
           label="Due"
           tone={stats.due > 0 ? "accent" : "default"}
         />
-        <Stat value={stats.fresh} label="New" />
+        <Stat value={stats.newToday} label="New" />
         <Stat value={stats.reviewedToday} label="Done" tone="good" />
       </div>
 
@@ -96,7 +96,7 @@ export default async function TodayPage() {
         <section className="mt-6">
           <div className="mb-2 flex items-baseline justify-between">
             <h2 className="font-display text-base font-semibold">
-              Waiting to read
+              Listen & Read
             </h2>
             <Link href="/articles" className="text-sm text-accent">
               All
@@ -148,7 +148,7 @@ export default async function TodayPage() {
             }
           />
         ) : (
-          <DeckTree roots={decks} openFolders="none" newLimit={active.dailyNewLimit} />
+          <DeckTree roots={decks} openFolders="none" />
         )}
       </section>
     </Screen>

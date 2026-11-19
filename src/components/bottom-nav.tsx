@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Layers, Settings, Sparkles } from "lucide-react";
+import { BookHeadphones, Layers, Settings, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/", label: "Today", icon: Sparkles },
   { href: "/decks", label: "Decks", icon: Layers },
-  { href: "/articles", label: "Read", icon: BookOpen },
+  { href: "/articles", label: "Listen & Read", icon: BookHeadphones },
   { href: "/settings", label: "You", icon: Settings },
 ] as const;
 

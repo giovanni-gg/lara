@@ -69,19 +69,12 @@ export async function activateProfile(profileId: string) {
 export async function updateProfileSettings(formData: FormData) {
   const { profile } = await requireActiveProfile();
   const level = String(formData.get("level") ?? profile.level) as CefrLevel;
-  const dailyNewLimit = Number(formData.get("dailyNewLimit") ?? profile.dailyNewLimit);
-  const dailyReviewLimit = Number(
-    formData.get("dailyReviewLimit") ?? profile.dailyReviewLimit,
-  );
 
+  // Daily limits live on each deck now (Deck.newCardsPerDay); reviews are
+  // never capped. The level is the only study setting left on the profile.
   await prisma.languageProfile.update({
     where: { id: profile.id },
-    data: {
-      level,
-      dailyNewLimit: clamp(dailyNewLimit, 0, 500),
-      // Anki's "9999 reviews/day" means "no cap"; allow it.
-      dailyReviewLimit: clamp(dailyReviewLimit, 0, 9999),
-    },
+    data: { level },
   });
 
   revalidatePath("/", "layout");
@@ -94,12 +87,15 @@ export async function createDeck(formData: FormData) {
 
   const direction = formData.get("direction");
   const parentId = String(formData.get("parentId") ?? "") || null;
+  // A deck created inside an archived one is archived with it.
+  let archivedAt: Date | null = null;
   if (parentId) {
     const parent = await prisma.deck.findFirst({
       where: { id: parentId, profileId: profile.id },
-      select: { id: true },
+      select: { id: true, archivedAt: true },
     });
     if (!parent) throw new Error("Folder not found");
+    archivedAt = parent.archivedAt;
   }
 
   const deck = await prisma.deck.create({
@@ -107,6 +103,7 @@ export async function createDeck(formData: FormData) {
       userId: user.id,
       profileId: profile.id,
       parentId,
+      archivedAt,
       name,
       emoji: String(formData.get("emoji") ?? "").trim() || "🗂️",
       description: String(formData.get("description") ?? "").trim() || null,
@@ -137,14 +134,71 @@ export async function moveDeck(formData: FormData) {
     }
     const parent = await prisma.deck.findFirst({
       where: { id: parentId, profileId: profile.id },
-      select: { id: true },
+      select: { id: true, archivedAt: true },
     });
     if (!parent) throw new Error("Folder not found");
+    // Moving into an archived deck archives the moved subtree too, keeping
+    // the invariant that a subtree is archived as a whole.
+    if (parent.archivedAt) {
+      await setArchived(profile.id, deck.id, parent.archivedAt);
+    }
   }
 
   await prisma.deck.update({ where: { id: deck.id }, data: { parentId } });
   revalidatePath("/decks");
   revalidatePath(`/decks/${deck.id}`);
+}
+
+/** Anki's "New cards/day", per deck. */
+export async function updateDeckNewCardsPerDay(formData: FormData) {
+  const { profile } = await requireActiveProfile();
+  const deckId = String(formData.get("deckId") ?? "");
+  const value = Number(formData.get("newCardsPerDay"));
+  if (!Number.isFinite(value)) throw new Error("Enter a number of new cards per day");
+
+  const { count } = await prisma.deck.updateMany({
+    where: { id: deckId, profileId: profile.id },
+    data: { newCardsPerDay: clamp(value, 0, 999) },
+  });
+  if (count === 0) throw new Error("Deck not found");
+
+  revalidatePath("/", "layout");
+}
+
+/** Archive a deck and everything beneath it: out of study, counts and lists. */
+export async function archiveDeck(formData: FormData) {
+  const { profile } = await requireActiveProfile();
+  const deckId = String(formData.get("deckId") ?? "");
+  await setArchived(profile.id, deckId, new Date());
+  revalidatePath("/", "layout");
+}
+
+/** Bring an archived deck (and its subdecks) back into study. */
+export async function unarchiveDeck(formData: FormData) {
+  const { profile } = await requireActiveProfile();
+  const deckId = String(formData.get("deckId") ?? "");
+
+  // Unarchiving a deck whose parent is still archived would orphan it in a
+  // hidden tree, so it moves to the top level.
+  const deck = await prisma.deck.findFirst({
+    where: { id: deckId, profileId: profile.id },
+    select: { parent: { select: { archivedAt: true } } },
+  });
+  if (!deck) throw new Error("Deck not found");
+  if (deck.parent?.archivedAt) {
+    await prisma.deck.update({ where: { id: deckId }, data: { parentId: null } });
+  }
+  await setArchived(profile.id, deckId, null);
+  revalidatePath("/", "layout");
+}
+
+async function setArchived(profileId: string, deckId: string, archivedAt: Date | null) {
+  const ids = await subtreeIds(profileId, deckId);
+  if (ids.length === 0) throw new Error("Deck not found");
+  await prisma.deck.updateMany({
+    where: { id: { in: ids }, profileId },
+    data: { archivedAt },
+  });
 }
 
 export async function createCard(formData: FormData) {

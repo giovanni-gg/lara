@@ -1,0 +1,58 @@
+name: CI
+
+# Gate for `main`: lint, typecheck, the unit suite and the integration suite,
+# in one job. No real database is used: the integration suite starts its own
+# embedded PostgreSQL on the runner and refuses any address that isn't
+# loopback (src/lib/local-database.ts). No AI, TTS or Blob credentials exist
+# here, and the tests never call them. Vercel builds every push separately.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push to the same branch supersedes the previous run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # `npm ci` runs the postinstall `prisma generate`, and prisma.config.ts
+      # reads a datasource URL. Generate never connects; this placeholder just
+      # keeps the config from resolving to undefined.
+      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+    steps:
+      - uses: actions/checkout@v7
+
+      # Node 24 = Vercel's default build runtime. `cache: npm` caches ~/.npm,
+      # which holds every tarball `npm ci` needs, including the embedded
+      # PostgreSQL binaries (@embedded-postgres/linux-x64, ~60 MB unpacked),
+      # so a warm run downloads nothing.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      # Installs the Linux embedded-postgres package (an optional dependency,
+      # recorded in package-lock.json for every platform) and runs its
+      # postinstall, which package.json's `allowScripts` approves.
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm run lint
+
+      # Vitest strips types without checking them; this is what catches a
+      # broken test file.
+      - run: npm run typecheck
+
+      - run: npm test
+
+      # Starts an embedded PostgreSQL 17, runs `prisma migrate deploy`, runs
+      # the suite, deletes the cluster. tests/integration/setup.ts refuses any
+      # non-loopback host.
+      - run: npm run test:int

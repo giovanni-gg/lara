@@ -1,16 +1,18 @@
 import { prisma } from "./db";
 import { FsrsState } from "@/generated/prisma/enums";
+import { Prisma } from "@/generated/prisma/client";
 import {
   SCHEDULER_SETTINGS,
   applyReview,
   isLeechMilestone,
   previewIntervals,
+  startOfStudyDay,
   type RatingValue,
 } from "./srs";
 
 /**
  * Builds a study queue the way Anki does: due reviews first (they decay if you
- * skip them), then new cards up to the daily cap.
+ * skip them), then each deck's new cards for today.
  */
 
 export type QueueCard = {
@@ -62,48 +64,49 @@ export type BuildQueueOptions = {
    * Omit to study everything in the profile.
    */
   deckIds?: string[];
-  reviewLimit?: number;
-  newLimit?: number;
   now?: Date;
 };
 
 /**
- * Reviews and new cards get independent caps, the way Anki's deck options work.
- * A backlog of reviews shouldn't silently starve new material, and a big new
- * batch shouldn't push overdue reviews out of the session.
+ * Not a study limit — reviews are never capped — just a bound on how many
+ * cards one session ships to the phone in a single payload.
+ */
+const MAX_SESSION_CARDS = 2000;
+
+/**
+ * Every due review, then each deck's remaining new cards for today.
+ *
+ * Reviews are uncapped by design (the learner always clears the backlog). New
+ * cards are capped per deck by `Deck.newCardsPerDay`, counting cards that deck
+ * already introduced since the study day began, as Anki does. Archived decks
+ * are left out entirely.
  */
 export async function buildQueue({
   userId,
   profileId,
   deckIds,
-  reviewLimit = 200,
-  newLimit = 20,
   now = new Date(),
 }: BuildQueueOptions): Promise<QueueCard[]> {
-  const where = {
-    userId,
-    suspended: false,
-    deck: deckIds ? { id: { in: deckIds }, profileId } : { profileId },
+  const deck = {
+    profileId,
+    archivedAt: null,
+    ...(deckIds ? { id: { in: deckIds } } : {}),
   };
 
-  const [due, fresh] = await Promise.all([
-    reviewLimit > 0
-      ? prisma.card.findMany({
-          where: { ...where, state: { not: FsrsState.NEW }, due: { lte: now } },
-          select: CARD_SELECT,
-          orderBy: { due: "asc" },
-          take: reviewLimit,
-        })
-      : Promise.resolve([]),
-    newLimit > 0
-      ? prisma.card.findMany({
-          where: { ...where, state: FsrsState.NEW },
-          select: CARD_SELECT,
-          orderBy: { createdAt: "asc" },
-          take: newLimit,
-        })
-      : Promise.resolve([]),
-  ]);
+  // Sequential, not Promise.all — see AGENTS.md on concurrent queries.
+  const due = await prisma.card.findMany({
+    where: { userId, suspended: false, deck, state: { not: FsrsState.NEW }, due: { lte: now } },
+    select: CARD_SELECT,
+    orderBy: { due: "asc" },
+    take: MAX_SESSION_CARDS,
+  });
+
+  const freshIds = await newCardIdsForToday(profileId, now, deckIds);
+  const freshRows = freshIds.length
+    ? await prisma.card.findMany({ where: { id: { in: freshIds }, userId }, select: CARD_SELECT })
+    : [];
+  const position = new Map(freshIds.map((id, i) => [id, i]));
+  const fresh = freshRows.sort((a, b) => position.get(a.id)! - position.get(b.id)!);
 
   return [...due, ...fresh].map((card) => {
     const previews = previewIntervals(card, now);
@@ -130,6 +133,52 @@ export async function buildQueue({
       },
     };
   });
+}
+
+/**
+ * Cards each deck has introduced since the study day began: cards whose
+ * first-ever review falls today. Shared by the queue and the counts so the
+ * "New" number and the session always agree.
+ */
+function introducedTodaySql(profileId: string, dayStart: Date) {
+  return Prisma.sql`
+    SELECT c."deckId", count(*)::int AS n
+    FROM "Card" c
+    JOIN "Deck" d ON d.id = c."deckId"
+    JOIN (
+      SELECT r."cardId" FROM "Review" r
+      GROUP BY r."cardId"
+      HAVING min(r."reviewedAt") >= ${dayStart}
+    ) first_review ON first_review."cardId" = c.id
+    WHERE d."profileId" = ${profileId}
+    GROUP BY c."deckId"
+  `;
+}
+
+/** Ids of today's new cards, oldest first, each deck capped at its remaining allowance. */
+async function newCardIdsForToday(
+  profileId: string,
+  now: Date,
+  deckIds?: string[],
+): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    WITH introduced AS (${introducedTodaySql(profileId, startOfStudyDay(now))}),
+    ranked AS (
+      SELECT c.id, c."createdAt",
+        row_number() OVER (PARTITION BY c."deckId" ORDER BY c."createdAt", c.id) AS rn,
+        greatest(d."newCardsPerDay" - coalesce(i.n, 0), 0) AS remaining
+      FROM "Card" c
+      JOIN "Deck" d ON d.id = c."deckId"
+      LEFT JOIN introduced i ON i."deckId" = c."deckId"
+      WHERE d."profileId" = ${profileId}
+        AND d."archivedAt" IS NULL
+        AND c.suspended = false
+        AND c.state = 'NEW'::"FsrsState"
+        ${deckIds ? Prisma.sql`AND c."deckId" = ANY(${deckIds})` : Prisma.empty}
+    )
+    SELECT id FROM ranked WHERE rn <= remaining ORDER BY "createdAt", id
+  `;
+  return rows.map((row) => row.id);
 }
 
 /** "10m", "2d", "3mo" — terse enough to sit under an answer button. */
@@ -191,78 +240,53 @@ export type DeckStats = {
   total: number;
   /** Everything due now: learning + review. */
   due: number;
+  /** All new cards, regardless of today's allowance. */
   fresh: number;
+  /** New cards this deck will still introduce today — Anki's "New" column. */
+  newToday: number;
   /** Learning/relearning cards due now — Anki's "Learn" column. */
   learning: number;
 };
 
-/** Counts for one deck, in a single pass. See `statsByDeck` for why not four. */
-export async function deckStats(
-  deckId: string,
-  now = new Date(),
-): Promise<DeckStats> {
-  const [row] = await prisma.$queryRaw<
-    { total: number; due: number; fresh: number; learning: number }[]
-  >`
-    SELECT
-      count(*)::int AS total,
-      count(*) FILTER (
-        WHERE c.state <> 'NEW'::"FsrsState" AND c.due <= ${now}
-      )::int AS due,
-      count(*) FILTER (WHERE c.state = 'NEW'::"FsrsState")::int AS fresh,
-      count(*) FILTER (
-        WHERE c.state IN ('LEARNING'::"FsrsState", 'RELEARNING'::"FsrsState")
-          AND c.due <= ${now}
-      )::int AS learning
-    FROM "Card" c
-    WHERE c."deckId" = ${deckId} AND c.suspended = false
-  `;
-
-  return {
-    total: row?.total ?? 0,
-    due: row?.due ?? 0,
-    fresh: row?.fresh ?? 0,
-    learning: row?.learning ?? 0,
-  };
-}
-
 /**
- * Stats for every deck in a profile, as a single query.
+ * Stats for every deck in a profile (archived ones included — callers decide
+ * what to show), as a single query.
  *
- * Conditional aggregates (`count(*) FILTER (...)`) produce all four buckets in
- * one pass. Both obvious alternatives are worse: four counts per deck exhausts
- * the connection pool once you have a few dozen decks, and four *concurrent*
- * grouped queries is rejected outright by the local `prisma dev` Postgres,
- * which does not tolerate parallel aggregate queries.
+ * Conditional aggregates (`count(*) FILTER (...)`) produce all buckets in one
+ * pass. Both obvious alternatives are worse: counts per deck exhaust the
+ * connection pool once you have a few dozen decks, and concurrent grouped
+ * queries are rejected outright by the local `prisma dev` Postgres.
  */
 export async function statsByDeck(
   profileId: string,
   now = new Date(),
 ): Promise<Map<string, DeckStats>> {
-  const rows = await prisma.$queryRaw<
-    {
-      deckId: string;
-      total: number;
-      due: number;
-      fresh: number;
-      learning: number;
-    }[]
-  >`
+  const rows = await prisma.$queryRaw<(DeckStats & { deckId: string })[]>`
+    WITH introduced AS (${introducedTodaySql(profileId, startOfStudyDay(now))}),
+    counts AS (
+      SELECT
+        c."deckId",
+        count(*)::int AS total,
+        count(*) FILTER (
+          WHERE c.state <> 'NEW'::"FsrsState" AND c.due <= ${now}
+        )::int AS due,
+        count(*) FILTER (WHERE c.state = 'NEW'::"FsrsState")::int AS fresh,
+        count(*) FILTER (
+          WHERE c.state IN ('LEARNING'::"FsrsState", 'RELEARNING'::"FsrsState")
+            AND c.due <= ${now}
+        )::int AS learning
+      FROM "Card" c
+      JOIN "Deck" d ON d.id = c."deckId"
+      WHERE d."profileId" = ${profileId} AND c.suspended = false
+      GROUP BY c."deckId"
+    )
     SELECT
-      c."deckId" AS "deckId",
-      count(*)::int AS total,
-      count(*) FILTER (
-        WHERE c.state <> 'NEW'::"FsrsState" AND c.due <= ${now}
-      )::int AS due,
-      count(*) FILTER (WHERE c.state = 'NEW'::"FsrsState")::int AS fresh,
-      count(*) FILTER (
-        WHERE c.state IN ('LEARNING'::"FsrsState", 'RELEARNING'::"FsrsState")
-          AND c.due <= ${now}
-      )::int AS learning
-    FROM "Card" c
-    JOIN "Deck" d ON d.id = c."deckId"
-    WHERE d."profileId" = ${profileId} AND c.suspended = false
-    GROUP BY c."deckId"
+      counts."deckId" AS "deckId",
+      counts.total, counts.due, counts.fresh, counts.learning,
+      least(counts.fresh, greatest(d."newCardsPerDay" - coalesce(i.n, 0), 0))::int AS "newToday"
+    FROM counts
+    JOIN "Deck" d ON d.id = counts."deckId"
+    LEFT JOIN introduced i ON i."deckId" = counts."deckId"
   `;
 
   return new Map(
@@ -272,6 +296,7 @@ export async function statsByDeck(
         total: row.total,
         due: row.due,
         fresh: row.fresh,
+        newToday: row.newToday,
         learning: row.learning,
       },
     ]),
@@ -282,60 +307,47 @@ export const EMPTY_DECK_STATS: DeckStats = {
   total: 0,
   due: 0,
   fresh: 0,
+  newToday: 0,
   learning: 0,
 };
 
 /**
- * Profile-wide counts for the Today screen. Card buckets come from one pass of
- * conditional aggregates; the review tally is a second, sequential query
- * (different table). Deliberately not `Promise.all` — see `statsByDeck`.
+ * Profile-wide counts for the Today screen, over decks that aren't archived.
+ * Card buckets come from `statsByDeck`; the review tally is a second,
+ * sequential query (different table). Deliberately not `Promise.all`.
  */
 export async function profileStats(profileId: string, now = new Date()) {
-  const [cards] = await prisma.$queryRaw<
-    { total: number; due: number; fresh: number }[]
-  >`
-    SELECT
-      count(*)::int AS total,
-      count(*) FILTER (
-        WHERE c.state <> 'NEW'::"FsrsState" AND c.due <= ${now}
-      )::int AS due,
-      count(*) FILTER (WHERE c.state = 'NEW'::"FsrsState")::int AS fresh
-    FROM "Card" c
-    JOIN "Deck" d ON d.id = c."deckId"
-    WHERE d."profileId" = ${profileId} AND c.suspended = false
-  `;
+  const active = new Set(
+    (
+      await prisma.deck.findMany({
+        where: { profileId, archivedAt: null },
+        select: { id: true },
+      })
+    ).map((d) => d.id),
+  );
+  const perDeck = await statsByDeck(profileId, now);
+
+  let total = 0;
+  let due = 0;
+  let newToday = 0;
+  for (const [deckId, stats] of perDeck) {
+    if (!active.has(deckId)) continue;
+    total += stats.total;
+    due += stats.due;
+    newToday += stats.newToday;
+  }
 
   const reviewedToday = await prisma.review.count({
     where: {
       card: { deck: { profileId } },
-      reviewedAt: { gte: startOfDay(now) },
+      reviewedAt: { gte: startOfStudyDay(now) },
     },
   });
 
-  return {
-    total: cards?.total ?? 0,
-    due: cards?.due ?? 0,
-    fresh: cards?.fresh ?? 0,
-    reviewedToday,
-  };
+  return { total, due, newToday, reviewedToday };
 }
 
-/**
- * How many cards a session will actually serve. Each cap applies to its own
- * pool, so this must not be `min(due + fresh, reviewLimit + newLimit)`.
- */
-export function sessionSize(
-  stats: { due: number; fresh: number },
-  limits: { dailyReviewLimit: number; dailyNewLimit: number },
-): number {
-  return (
-    Math.min(stats.due, limits.dailyReviewLimit) +
-    Math.min(stats.fresh, limits.dailyNewLimit)
-  );
-}
-
-function startOfDay(date: Date): Date {
-  const copy = new Date(date);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
+/** How many cards a session will serve: every due review plus today's new cards. */
+export function sessionSize(stats: { due: number; newToday: number }): number {
+  return stats.due + stats.newToday;
 }

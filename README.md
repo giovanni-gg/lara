@@ -4,7 +4,7 @@ A language-learning web app for the phone. Three things:
 
 1. **Flashcards** on a real spaced-repetition scheduler (FSRS-6, the algorithm behind Anki's modern scheduler).
 2. **Prompt-to-deck** — describe what you want to learn and get cards, examples, and audio, without touching a computer.
-3. **Immersion reading** — stories and articles written one CEFR level above you, built out of words you already know plus a controlled handful of new ones.
+3. **Listen & Read**: stories written one CEFR level above you, from one of your decks or from everything you've studied, plus a controlled handful of new words. Each one is read aloud sentence by sentence, and you tap any sentence to hear it again and see its translation.
 4. **A tutor on every card** — ask about a conjugation, a word order, a false friend, mid-review, without leaving the session. Threads persist per card.
 
 It grew out of [`anki_creator`](../personal-projects/anki_creator), a Python script that generated Anki CSVs. This replaces the whole loop: no CSV, no import step, no desktop.
@@ -38,11 +38,36 @@ Nothing is required to run the app, but the interesting parts need credentials:
 
 | Variable | Unlocks | Without it |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Deck, story, and article generation; the card tutor | Those return a clear 503; studying and manual cards still work |
-| `ELEVENLABS_API_KEY` | Audio on cards, stories, and articles | Content is created silently, no audio |
+| `ANTHROPIC_API_KEY` | Deck and story generation; the card tutor | Those return a clear 503; studying and manual cards still work |
+| `ELEVENLABS_API_KEY` | Audio on cards and stories | Content is created silently, no audio |
 
 Voice IDs for Swedish and Brazilian Portuguese carried over from `anki_creator`
 and live in `src/lib/languages.ts`.
+
+---
+
+## Testing
+
+Two layers, neither of which needs your `prisma dev` database, a key, or the
+network (beyond the first `npm install`):
+
+```bash
+npm test               # unit: pure functions, colocated src/**/*.test.ts (~1 s)
+npm run test:int       # integration: real Postgres, real Prisma, real actions (~15 s)
+npm run typecheck      # prisma generate + tsc --noEmit, test files included
+```
+
+- Each integration run starts its **own throwaway PostgreSQL 17**
+  (`embedded-postgres`) on a free loopback port, applies every migration with
+  `prisma migrate deploy`, and deletes it afterwards. It refuses any database
+  address that isn't `127.0.0.1`/`localhost`, so they can't reach Neon.
+- Nothing calls Anthropic, ElevenLabs or Blob: the suites blank those keys, so
+  the app takes its "not configured" paths (AI routes answer 503).
+- There are no browser tests, by choice.
+- CI (`.github/workflows/ci.yml`) runs lint, typecheck, unit and integration
+  in one job on every push and PR.
+
+How to add tests, the factories and the fixture world: [`tests/README.md`](tests/README.md).
 
 ---
 
@@ -66,6 +91,8 @@ npm run import:anki-collection -- "$APPDATA/Anki2/User 1/collection.anki2" sv --
 - FSRS stability/difficulty come straight from Anki. Cards reviewed before FSRS
   was switched on get theirs by replaying their history.
 - Suspended cards stay suspended; daily limits are copied from the deck preset.
+- Then run `npm run media:optimize`: Anki pictures are 1024px PNGs (~850 KB);
+  this writes 640px WebPs (~20 KB) and points the cards at them.
 - Re-running with `--replace` refuses if you've done reviews in Lara since
   (they'd be lost); add `--force` if that's really what you want.
 
@@ -99,14 +126,14 @@ Two properties worth knowing, because they shape the schema:
 ## Layout
 
 ```
-prisma/schema.prisma        Users, language profiles, decks, cards, reviews, articles
+prisma/schema.prisma        Users, language profiles, decks, cards, reviews, stories (Article)
 src/lib/
   srs.ts                   FSRS wrapper — the only file that imports ts-fsrs; scheduler settings
   deck-tree.ts             Deck/subdeck tree with rolled-up counts
   study.ts                 Queue building, review submission, deck/profile stats
   ai/cards.ts              Prompt → flashcards
-  ai/stories.ts            Prompt + length → narrative fiction at i+1
-  ai/articles.ts           Topic → level-appropriate article, split by sentence
+  ai/stories.ts            Deck words + prompt + length → a story at i+1, split by sentence
+  stories.ts               Gathers the vocabulary, saves the story, speaks its sentences
   ai/tutor.ts              The per-card tutor (streaming)
   tutor-prompts.ts         Suggested questions; client-safe, no AI SDK import
   tts.ts                   ElevenLabs, content-hash cached
@@ -116,7 +143,7 @@ src/app/
   page.tsx                 Today: counts, study button, prompt-to-deck
   study/                   The review session, with the card tutor sheet
   decks/                   Deck list, deck detail, manual card entry
-  articles/                Stories + articles library and reader
+  articles/                Listen & Read: story library, new-story form, reader
   api/                     reviews, */generate, cards/[id]/chat, segments audio
 scripts/import-anki.ts     Anki collection importer (decks, cards, media, history)
 scripts/import-anki-csv.ts anki_creator CSV importer
@@ -129,6 +156,12 @@ scripts/import-anki-csv.ts anki_creator CSV importer
 Built to go to Vercel with Neon, though nothing is deployed yet:
 
 - `prisma generate` runs as part of `npm run build`.
+- Migrations reach production only through `npm run db:migrate:deploy`
+  (`npm run db:migrate:status:prod` to check first, read-only). Those scripts,
+  any other `*:prod` script, or `PRISMA_TARGET=production` make
+  `prisma.config.ts` read the Neon URLs from `.env.neon-prod` (gitignored,
+  preferring `DATABASE_URL_UNPOOLED`); every other Prisma command targets the
+  local `prisma dev` database in `.env`.
 - Prisma talks to Postgres through `@prisma/adapter-pg` over plain TCP, so
   moving to Neon is a `DATABASE_URL` change and nothing else.
 - Generation routes set `maxDuration = 300` and run on the Node.js runtime

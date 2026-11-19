@@ -88,6 +88,16 @@ model Deck {
   /// its own `cardType`, so a deck can mix directions (imported Anki decks do).
   direction CardDirection @default(RECOGNITION)
 
+  /// New cards this deck introduces per study day (Anki's "New cards/day").
+  /// Counts only this deck's own cards. Reviews are never capped.
+  newCardsPerDay Int @default(5)
+
+  /// Set when the learner archived this deck: it and everything beneath it
+  /// drop out of study, counts and the main deck list, without losing cards
+  /// or history. Archiving/unarchiving always applies to the whole subtree,
+  /// so queries only ever need to check the deck's own column.
+  archivedAt DateTime?
+
   /// Anki deck id, for decks brought over by `scripts/import-anki.ts`.
   ankiId BigInt?
 
@@ -104,6 +114,8 @@ model Deck {
   parent   Deck?           @relation("DeckTree", fields: [parentId], references: [id], onDelete: Cascade)
   children Deck[]          @relation("DeckTree")
   cards    Card[]
+  /// Stories written around this deck's vocabulary.
+  articles Article[]
 
   @@index([userId])
   @@index([profileId])
@@ -275,12 +287,16 @@ model Article {
   newVocabulary    String[] @default([])
 
   sourcePrompt String?
+  /// Deck whose vocabulary the story was built around; null for stories drawn
+  /// from all of the learner's cards. Kept (as null) if the deck is deleted.
+  deckId       String?
   readAt       DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   profile  LanguageProfile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  deck     Deck?            @relation(fields: [deckId], references: [id], onDelete: SetNull)
   segments ArticleSegment[]
 
   @@index([userId, createdAt])

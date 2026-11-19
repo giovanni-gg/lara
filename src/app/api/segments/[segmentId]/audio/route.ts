@@ -6,11 +6,12 @@ import { synthesize, TtsUnavailableError } from "@/lib/tts";
 export const maxDuration = 120;
 
 /**
- * Synthesises one sentence of an article or story, on demand.
+ * Synthesises one sentence of a story, on demand.
  *
- * Long stories don't get a single whole-text clip — it is slow to generate and
- * awkward to listen to. Instead the reader asks for a sentence the first time
- * you tap it, and the URL is cached on the row so the second tap is instant.
+ * Stories have no whole-text clip: the reader plays sentence clips back to
+ * back. New stories get theirs spoken right after they're written
+ * (`synthesizeStoryAudio`); this fills any the reader reaches first, or that
+ * failed, and caches the URL on the row so the next play is instant.
  */
 export async function POST(
   _request: Request,

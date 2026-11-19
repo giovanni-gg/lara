@@ -764,6 +764,8 @@ async function main() {
               description: "Imported from Anki",
               sortOrder: index,
               direction: holdsCards ? deckDirection(ankiId) : CardDirection.RECOGNITION,
+              // Anki's preset "New cards/day" becomes each deck's own limit.
+              ...(limits?.newPerDay !== undefined ? { newCardsPerDay: limits.newPerDay } : {}),
               ankiId: ankiId !== undefined ? BigInt(ankiId) : null,
               createdAt: ankiId !== undefined && ankiId > 1e12 ? new Date(ankiId) : importedAt,
             };
@@ -815,17 +817,12 @@ async function main() {
         await prisma.review.createMany({ data: chunk });
       }
 
-      if (limits?.newPerDay !== undefined && limits.reviewsPerDay !== undefined) {
-        await prisma.languageProfile.update({
-          where: { id: profile.id },
-          data: { dailyNewLimit: limits.newPerDay, dailyReviewLimit: limits.reviewsPerDay },
-        });
-      }
 
       console.log(
         `\nImported ${createdDecks.length} decks, ${cardIdFor.size} cards, ${reviewRows.length} reviews` +
-          (limits ? `; daily limits set to ${limits.newPerDay} new / ${limits.reviewsPerDay} reviews.` : "."),
+          (limits?.newPerDay !== undefined ? `; each deck gets ${limits.newPerDay} new cards/day.` : "."),
       );
+      console.log("Next: `npm run media:optimize` to shrink the imported pictures for phones.");
     } finally {
       await prisma.$disconnect();
     }

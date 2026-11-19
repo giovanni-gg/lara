@@ -15,6 +15,8 @@ export type DeckNode = {
   name: string;
   emoji: string | null;
   parentId: string | null;
+  archivedAt: Date | null;
+  newCardsPerDay: number;
   /** This deck's own cards only. */
   own: DeckStats;
   /** This deck plus all subdecks. */
@@ -27,6 +29,8 @@ type DeckRow = {
   name: string;
   emoji: string | null;
   parentId: string | null;
+  archivedAt: Date | null;
+  newCardsPerDay: number;
 };
 
 export function buildDeckTree(
@@ -53,6 +57,7 @@ export function buildDeckTree(
       node.total.total += t.total;
       node.total.due += t.due;
       node.total.fresh += t.fresh;
+      node.total.newToday += t.newToday;
       node.total.learning += t.learning;
     }
     return node.total;
@@ -61,18 +66,33 @@ export function buildDeckTree(
   return roots;
 }
 
-/** The whole tree for a profile, rows in the order the user arranged them. */
+/**
+ * The tree for a profile, rows in the order the user arranged them.
+ *
+ * `roots` is the study tree — archived decks left out. `archivedRoots` are
+ * the tops of archived subtrees, for the Archived section. `byId` indexes
+ * every deck, archived or not, so an archived deck's page still works.
+ */
 export async function loadDeckTree(profileId: string): Promise<{
   roots: DeckNode[];
+  archivedRoots: DeckNode[];
   byId: Map<string, DeckNode>;
 }> {
   const rows = await prisma.deck.findMany({
     where: { profileId },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, emoji: true, parentId: true },
+    select: { id: true, name: true, emoji: true, parentId: true, archivedAt: true, newCardsPerDay: true },
   });
   const stats = await statsByDeck(profileId);
-  const roots = buildDeckTree(rows, stats);
+  const archived = new Set(rows.filter((r) => r.archivedAt).map((r) => r.id));
+  const roots = buildDeckTree(rows.filter((r) => !r.archivedAt), stats);
+  // An archived deck under an archived parent belongs to that parent's subtree.
+  const archivedRoots = buildDeckTree(
+    rows
+      .filter((r) => r.archivedAt)
+      .map((r) => (r.parentId && archived.has(r.parentId) ? r : { ...r, parentId: null })),
+    stats,
+  );
 
   const byId = new Map<string, DeckNode>();
   const index = (node: DeckNode) => {
@@ -80,7 +100,8 @@ export async function loadDeckTree(profileId: string): Promise<{
     node.children.forEach(index);
   };
   roots.forEach(index);
-  return { roots, byId };
+  archivedRoots.forEach(index);
+  return { roots, archivedRoots, byId };
 }
 
 /** A deck and every deck beneath it. */

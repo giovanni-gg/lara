@@ -39,7 +39,7 @@ export default function OnboardingPage() {
 
         <Field
           label="Where you are now"
-          hint="Articles get written one level above this, so you always meet a little new language."
+          hint="Stories get written one level above this, so you always meet a little new language."
         >
           <select name="level" defaultValue="A1" className={inputStyles}>
             {CEFR_LEVELS.map((level) => (

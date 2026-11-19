@@ -74,7 +74,7 @@ const scheduler = fsrs(
  * the day's due count is stable from the morning on. Uses the server's local
  * time zone, which is the learner's while the app runs on their machine.
  */
-function startOfStudyDay(date: Date): Date {
+export function startOfStudyDay(date: Date): Date {
   const start = new Date(date);
   start.setHours(SCHEDULER_SETTINGS.dayStartsAtHour, 0, 0, 0);
   if (start > date) start.setDate(start.getDate() - 1);

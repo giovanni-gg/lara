@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useSyncExternalStore } from "react";
 import { Pause, Volume2 } from "lucide-react";
+import { noOwner, play, playingOwner, stop, subscribe } from "@/lib/audio-cache";
 import { cn } from "@/lib/utils";
 
 /**
  * Plays a generated audio clip. Kept as its own component so the same control
  * works on cards, article sentences, and the full-article player.
+ *
+ * Playback goes through `@/lib/audio-cache`: a clip someone prefetched starts
+ * instantly from its decoded buffer, anything else streams as before. One clip
+ * plays at a time app-wide.
  */
 export function AudioButton({
   src,
@@ -21,14 +26,21 @@ export function AudioButton({
   size?: "sm" | "md" | "lg";
   className?: string;
 }) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState(false);
+  const owner = useId();
+  const playing = useSyncExternalStore(subscribe, playingOwner, noOwner) === owner;
 
+  // Only ever starts a clip: flipping autoPlay off (a recognition card being
+  // revealed) leaves the prompt audio running rather than cutting it off.
   useEffect(() => {
     if (!autoPlay || !src) return;
-    // Safari blocks autoplay without a gesture; a rejected promise is fine.
-    audioRef.current?.play().catch(() => {});
-  }, [autoPlay, src]);
+    // Without an unlocked context or a gesture, iOS refuses; the voice just
+    // ends and the button stays tappable.
+    play(src, owner);
+  }, [autoPlay, src, owner]);
+
+  // Unmounting (the card changed) or swapping clips silences this button's
+  // sound — but never one another button has since started.
+  useEffect(() => () => stop(owner), [src, owner]);
 
   if (!src) return null;
 
@@ -40,46 +52,26 @@ export function AudioButton({
 
   const iconSize = { sm: "size-4", md: "size-5", lg: "size-6" }[size];
 
-  function toggle() {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (audio.paused) {
-      audio.currentTime = 0;
-      audio.play().catch(() => {});
-    } else {
-      audio.pause();
-    }
-  }
-
   return (
-    <>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          toggle();
-        }}
-        aria-label={label}
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center rounded-full border border-line bg-raised text-accent transition-colors active:bg-accent/15",
-          dimensions,
-          className,
-        )}
-      >
-        {playing ? (
-          <Pause className={iconSize} aria-hidden />
-        ) : (
-          <Volume2 className={iconSize} aria-hidden />
-        )}
-      </button>
-      <audio
-        ref={audioRef}
-        src={src}
-        preload="none"
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-      />
-    </>
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        if (playing) stop(owner);
+        else play(src, owner);
+      }}
+      aria-label={label}
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center rounded-full border border-line bg-raised text-accent transition-colors active:bg-accent/15",
+        dimensions,
+        className,
+      )}
+    >
+      {playing ? (
+        <Pause className={iconSize} aria-hidden />
+      ) : (
+        <Volume2 className={iconSize} aria-hidden />
+      )}
+    </button>
   );
 }

@@ -20,8 +20,6 @@ export default async function StudyPage({
     profileId: active.id,
     // Studying a folder studies everything beneath it, as in Anki.
     deckIds: deckId ? await subtreeIds(active.id, deckId) : undefined,
-    reviewLimit: active.dailyReviewLimit,
-    newLimit: active.dailyNewLimit,
   });
 
   if (cards.length === 0) {

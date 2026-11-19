@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Deck" ADD COLUMN     "newCardsPerDay" INTEGER NOT NULL DEFAULT 5;

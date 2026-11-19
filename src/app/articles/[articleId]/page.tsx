@@ -3,28 +3,26 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
-import { ArticleReader } from "@/components/article-reader";
+import { StoryReader } from "@/components/story-reader";
 import { Screen } from "@/components/ui";
-import { ContentKind } from "@/generated/prisma/enums";
 
-export default async function ArticlePage({
+export default async function StoryPage({
   params,
 }: PageProps<"/articles/[articleId]">) {
   const { articleId } = await params;
   const user = await getCurrentUser();
 
-  const article = await prisma.article.findFirst({
+  const story = await prisma.article.findFirst({
     where: { id: articleId, userId: user.id },
     select: {
       id: true,
-      kind: true,
       title: true,
       titleTranslated: true,
       level: true,
       wordCount: true,
-      audioUrl: true,
       readAt: true,
       newVocabulary: true,
+      deck: { select: { id: true, name: true } },
       segments: {
         orderBy: { index: "asc" },
         select: {
@@ -37,24 +35,18 @@ export default async function ArticlePage({
       },
     },
   });
-  if (!article) notFound();
+  if (!story) notFound();
 
   return (
     <Screen>
-      <div className="pt-5">
-        <Link
-          href={
-            article.kind === ContentKind.ARTICLE
-              ? "/articles?kind=articles"
-              : "/articles"
-          }
-          className="inline-flex items-center gap-1 text-sm text-muted"
-        >
+      <div className="pt-4">
+        <Link href="/articles" className="inline-flex items-center gap-1 py-1 text-sm text-muted">
           <ChevronLeft className="size-4" aria-hidden />
-          {article.kind === ContentKind.ARTICLE ? "Articles" : "Stories"}
+          Listen &amp; Read
         </Link>
       </div>
-      <ArticleReader article={article} />
+      {/* Keyed so a different story starts with a fresh player. */}
+      <StoryReader key={story.id} story={story} />
     </Screen>
   );
 }

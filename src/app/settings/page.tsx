@@ -13,7 +13,6 @@ import { ttsAvailable } from "@/lib/tts";
 import { SCHEDULER_SETTINGS } from "@/lib/srs";
 import {
   Button,
-  ButtonLink,
   Field,
   PageHeader,
   Panel,
@@ -76,7 +75,7 @@ export default async function SettingsPage() {
         <form action={updateProfileSettings} className="space-y-3">
           <Field
             label="Your level"
-            hint={`Articles will be written at ${nextLevelUp(active.level)}.`}
+            hint={`Stories will be written at ${nextLevelUp(active.level)}.`}
           >
             <select
               name="level"
@@ -91,28 +90,10 @@ export default async function SettingsPage() {
             </select>
           </Field>
 
-          <div className="flex gap-3">
-            <Field label="New cards / day">
-              <input
-                name="dailyNewLimit"
-                type="number"
-                min={0}
-                max={500}
-                defaultValue={active.dailyNewLimit}
-                className={inputStyles}
-              />
-            </Field>
-            <Field label="Reviews / day">
-              <input
-                name="dailyReviewLimit"
-                type="number"
-                min={0}
-                max={9999}
-                defaultValue={active.dailyReviewLimit}
-                className={inputStyles}
-              />
-            </Field>
-          </div>
+          <p className="text-xs text-muted">
+            New cards per day are set on each deck (default 5). Reviews are
+            never capped — everything due is always shown.
+          </p>
 
           <Button type="submit" className="w-full">
             Save
@@ -120,20 +101,12 @@ export default async function SettingsPage() {
         </form>
       </section>
 
-      <section className="mb-5">
-        <h2 className="mb-2 font-display text-base font-semibold">
-          Add a language
-        </h2>
-        <ButtonLink href="/onboarding" variant="secondary" className="w-full">
-          Start another language
-        </ButtonLink>
-      </section>
 
       <section>
         <h2 className="mb-2 font-display text-base font-semibold">Status</h2>
         <Panel className="space-y-2 text-sm">
           <StatusRow
-            label="Card & article generation"
+            label="Card & story generation"
             ok={hasAiCredentials()}
             hint="Set ANTHROPIC_API_KEY in .env"
           />

@@ -8,11 +8,15 @@ import { Check, MessageCircleQuestion, X } from "lucide-react";
 import { AudioButton } from "@/components/audio-button";
 import { CardChat } from "@/components/card-chat";
 import { Button, ButtonLink } from "@/components/ui";
+import { prefetch, unlock } from "@/lib/audio-cache";
 import { RATING_LABELS, type RatingValue } from "@/lib/srs";
 import type { QueueCard } from "@/lib/study";
 import { cn } from "@/lib/utils";
 
 const RATING_ORDER: RatingValue[] = [1, 2, 3, 4];
+
+/** Cards past the current one whose audio and images are warmed ahead. */
+const LOOKAHEAD = 3;
 
 const RATING_STYLES: Record<RatingValue, string> = {
   1: "bg-again/15 text-again border-again/40",
@@ -37,6 +41,46 @@ function promptMode(card: QueueCard): PromptMode {
     return "production";
   }
   return "recognition";
+}
+
+/** Waits between attempts; after the last, the review counts as lost. */
+const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000];
+
+/** A card's schedule after an answer, as /api/reviews reports it. */
+type Rescheduled = Pick<QueueCard, "state" | "intervals">;
+
+/**
+ * Posts one review, retrying failures with backoff. Every non-2xx is retried:
+ * the route reports transient database errors as 400, so status alone can't
+ * tell a permanent failure apart. `keepalive` lets it finish if the page is
+ * left mid-request. Resolves to the card's new schedule (null if the response
+ * lacked one) or "lost" after the last attempt; never rejects.
+ */
+async function postReview(
+  body: string,
+  setFailing: (failing: boolean) => void,
+): Promise<Rescheduled | null | "lost"> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await fetch("/api/reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        keepalive: true,
+      });
+      if (response.ok) {
+        setFailing(false);
+        // Saved either way; a garbled body must not trigger a duplicate POST.
+        const data = await response.json().catch(() => null);
+        return (data?.card as Rescheduled | undefined) ?? null;
+      }
+    } catch {
+      // Offline or dropped: retry below.
+    }
+    setFailing(true);
+    if (attempt >= RETRY_DELAYS_MS.length) return "lost";
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+  }
 }
 
 /** Single words read big; whole sentences (40–90 chars) must fit a phone. */
@@ -70,49 +114,94 @@ export function StudySession({
   const [revealed, setRevealed] = useState(false);
   const [answered, setAnswered] = useState(0);
   const [again, setAgain] = useState(0);
-  const [pending, setPending] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   // Stamped in an effect rather than during render — reading the clock while
   // rendering is impure and React lints against it.
   const shownAt = useRef(0);
+  // Grading is optimistic: the next card shows at once and reviews post in the
+  // background, chained so they reach the server in order, one at a time.
+  const outbox = useRef<Promise<void>>(Promise.resolve());
+  const [unsent, setUnsent] = useState(0);
+  const [failing, setFailing] = useState(false);
+  const [lost, setLost] = useState(0);
+  // Debounces a double tap: the second would grade the same card again. By
+  // object, not id or position: a relearning card returns as a new object.
+  const graded = useRef<QueueCard | null>(null);
 
-  const card = cards[index];
-  const done = index >= cards.length;
+  // The session's queue: the server's cards plus any answered Again (still
+  // learning) appended at the end, Anki-style. Re-seeded when "Study more"
+  // brings new props — adjusted during render, which React allows for state
+  // derived from props, rather than in an effect.
+  const [seed, setSeed] = useState(cards);
+  const [queue, setQueue] = useState(cards);
+  if (seed !== cards) {
+    setSeed(cards);
+    setQueue(cards);
+    setIndex(0);
+    setRevealed(false);
+    setAnswered(0);
+    setAgain(0);
+  }
+
+  const card = queue[index] as QueueCard | undefined;
+  // Not done while answers are in flight: one may yet come back as learning.
+  const done = !card && unsent === 0;
 
   useEffect(() => {
     shownAt.current = Date.now();
   }, [index]);
 
-  // Warm the next picture so it's on screen the moment this card is graded.
-  const nextImage = cards[index + 1]?.imageUrl;
+  // iOS starts audio suspended until a gesture. Resuming on every tap (a no-op
+  // once running) unlocks it on the first one and recovers after a phone call
+  // or app switch suspends it again. Capture phase, so AudioButton's
+  // stopPropagation can't hide its taps. touchend/click/keydown are what
+  // WebKit counts as gestures; pointerdown on touch is not.
   useEffect(() => {
-    if (nextImage) preload(nextImage, { as: "image" });
-  }, [nextImage]);
+    const events = ["touchend", "click", "keydown"] as const;
+    for (const type of events) window.addEventListener(type, unlock, true);
+    return () => {
+      for (const type of events) window.removeEventListener(type, unlock, true);
+    };
+  }, []);
+
+  // Warm what's coming: decoded audio for this card and the next few (so
+  // autoplay on change or reveal starts instantly), and the next pictures.
+  // The current card first — its fetch matters most.
+  useEffect(() => {
+    for (const upcoming of queue.slice(index, index + 1 + LOOKAHEAD)) {
+      prefetch(upcoming.audioUrl);
+      prefetch(upcoming.sentenceAudioUrl);
+      if (upcoming !== queue[index] && upcoming.imageUrl) {
+        preload(upcoming.imageUrl, { as: "image" });
+      }
+    }
+  }, [queue, index]);
 
   const answer = useCallback(
-    async (rating: RatingValue) => {
-      if (!card || pending) return;
-      setPending(true);
+    (rating: RatingValue) => {
+      if (!card || graded.current === card) return;
+      graded.current = card;
 
       const durationMs = shownAt.current ? Date.now() - shownAt.current : undefined;
-      try {
-        await fetch("/api/reviews", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ cardId: card.id, rating, durationMs }),
-        });
-      } catch {
-        // Offline or a dropped request: keep the session moving rather than
-        // stranding the learner. The card stays due and comes back next time.
-      }
+      const body = JSON.stringify({ cardId: card.id, rating, durationMs });
+      setUnsent((n) => n + 1);
+      outbox.current = outbox.current.then(async () => {
+        const result = await postReview(body, setFailing);
+        if (result === "lost") setLost((n) => n + 1);
+        // Still on minute-scale steps: it comes back before the session ends.
+        else if (result?.state === "LEARNING" || result?.state === "RELEARNING") {
+          const relearn = { ...card, state: result.state, intervals: result.intervals };
+          setQueue((current) => [...current, relearn]);
+        }
+        setUnsent((n) => n - 1);
+      });
 
       setAnswered((n) => n + 1);
       if (rating === 1) setAgain((n) => n + 1);
       setRevealed(false);
       setIndex((i) => i + 1);
-      setPending(false);
     },
-    [card, pending],
+    [card],
   );
 
   // Desktop keyboard shortcuts: space reveals, 1-4 grades. Suspended while the
@@ -120,7 +209,7 @@ export function StudySession({
   useEffect(() => {
     if (chatOpen) return;
     function onKey(event: KeyboardEvent) {
-      if (done) return;
+      if (!card) return;
       if (event.key === " " || event.key === "Enter") {
         event.preventDefault();
         setRevealed(true);
@@ -129,12 +218,24 @@ export function StudySession({
       if (!revealed) return;
       const rating = Number(event.key);
       if (rating >= 1 && rating <= 4) {
-        void answer(rating as RatingValue);
+        answer(rating as RatingValue);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [answer, revealed, done, chatOpen]);
+  }, [answer, revealed, card, chatOpen]);
+
+  // Never lose an answer silently.
+  const notice =
+    failing && unsent > 0 ? (
+      <p role="status" className="text-center text-xs text-hard">
+        {unsent} {unsent === 1 ? "answer" : "answers"} not saved yet — retrying
+      </p>
+    ) : lost > 0 ? (
+      <p role="status" className="text-center text-xs text-again">
+        {lost} {lost === 1 ? "answer" : "answers"} couldn&apos;t be saved
+      </p>
+    ) : null;
 
   if (done) {
     const recalled = answered - again;
@@ -149,14 +250,16 @@ export function StudySession({
               ? ` · ${Math.round((recalled / answered) * 100)}% recalled`
               : ""}
           </p>
+          {notice}
         </div>
         <div className="flex w-full flex-col gap-2">
           <Button
-            onClick={() => {
+            onClick={async () => {
+              // Refreshing before the outbox drains could serve cards that
+              // were just answered but not yet saved. The new cards re-seed
+              // the queue when they arrive.
+              await outbox.current;
               router.refresh();
-              setIndex(0);
-              setAnswered(0);
-              setAgain(0);
             }}
           >
             Study more
@@ -169,7 +272,18 @@ export function StudySession({
     );
   }
 
-  const progress = (index / cards.length) * 100;
+  // Past the last card with answers still in flight: one may come back as
+  // learning, so hold the done screen until they've all landed.
+  if (!card) {
+    return (
+      <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-2 px-6 text-center">
+        <p className="text-sm text-muted">Saving answers…</p>
+        {notice}
+      </div>
+    );
+  }
+
+  const progress = (index / queue.length) * 100;
   const mode = promptMode(card);
   // Naming the target before reveal would spoil production/picture cards.
   const chatLabel =
@@ -193,7 +307,7 @@ export function StudySession({
           role="progressbar"
           aria-valuenow={index}
           aria-valuemin={0}
-          aria-valuemax={cards.length}
+          aria-valuemax={queue.length}
           aria-label="Session progress"
         >
           <div
@@ -202,7 +316,7 @@ export function StudySession({
           />
         </div>
         <span className="w-12 text-right text-xs tabular-nums text-muted">
-          {index + 1}/{cards.length}
+          {index + 1}/{queue.length}
         </span>
         {/* Always reachable, never in the way, and it doesn't spoil the answer. */}
         <button
@@ -219,6 +333,7 @@ export function StudySession({
         {card.deckName || deckName}
         {card.state === "NEW" ? " · new" : ""}
       </p>
+      {notice}
 
       {/* The card. Tap anywhere to reveal. A div, not a <button>: it contains
           audio buttons, and nested buttons are invalid HTML (the parser splits
@@ -226,7 +341,7 @@ export function StudySession({
           Show answer button below. */}
       <div
         // Prefixed: CardChat below is a sibling keyed by the bare card.id.
-        key={`card-${card.id}`}
+        key={`card-${card.id}-${index}`}
         onClick={() => setRevealed(true)}
         className={cn(
           "flex flex-1 items-center justify-center py-1",
@@ -331,10 +446,9 @@ export function StudySession({
               <button
                 key={rating}
                 type="button"
-                disabled={pending}
-                onClick={() => void answer(rating)}
+                onClick={() => answer(rating)}
                 className={cn(
-                  "flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-xl border text-sm font-semibold transition-transform active:scale-95 disabled:opacity-50",
+                  "flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-xl border text-sm font-semibold transition-transform active:scale-95",
                   RATING_STYLES[rating],
                 )}
               >

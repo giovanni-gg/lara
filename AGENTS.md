@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Lara
 
-Language-learning app: FSRS flashcards, AI-generated decks, immersion articles.
+Language-learning app: FSRS flashcards, AI-generated decks, Listen & Read stories.
 See `README.md` for what it is and how to run it.
 
 ## Non-obvious constraints
@@ -35,17 +35,37 @@ See `README.md` for what it is and how to run it.
   holding port 3000 — check the PID it reports and kill that.
 - **`CardChat` needs `key={card.id}` at every call site.** It resets its thread by
   remounting; resetting via `useEffect` trips `react-hooks/set-state-in-effect`.
-- **Stories and articles are one model** (`Article.kind`), one reader, two writing
-  briefs. Don't fork a parallel Story model — the reader, segments, audio, and
-  save-word all get reused.
-- **Reviews and new cards have independent daily caps.** Use `sessionSize` to
-  report how many cards a session will serve — `min(due + fresh, reviewLimit +
-  newLimit)` is wrong and over-promises.
+- **Stories are the only immersion content, stored in the `Article` model.**
+  The name is historical: `/articles` is the Listen & Read section, and
+  `Article.kind` is always `STORY` for new rows (`ARTICLE` stays in the enum
+  only so old rows read). Don't add a parallel Story model or a second content
+  type. The reader, segments, audio and save-word all hang off `Article`. A
+  story built from a deck records it in `Article.deckId` and draws on that
+  deck's subtree (`subtreeIds`, archived subdecks excluded).
+- **Story audio is per sentence; there's no whole-story clip.** The reader
+  plays `ArticleSegment.audioUrl` clips back to back through `audio-cache`.
+  A single clip of a medium or longer story would exceed `MAX_MEDIA_BYTES`
+  (4 MB is about 4 minutes at 128 kbps). The generate route speaks the first
+  3 sentences before it responds and the rest in `after()`. The reader
+  synthesises any it reaches first via `/api/segments/[id]/audio`.
+- **Daily limits are per deck, and only for new cards.** `Deck.newCardsPerDay`
+  (default 5) caps how many new cards *that deck* introduces per study day
+  (from 04:00, `startOfStudyDay`), counted as cards whose first-ever review is
+  today. Reviews are never capped. "New" everywhere means `newToday` (today's
+  remaining allowance), never the deck's total unseen cards. `buildQueue` and
+  `statsByDeck` share one SQL fragment for this so the count and the session
+  always agree; `sessionSize` is just `due + newToday`. The old
+  `LanguageProfile.dailyNewLimit/dailyReviewLimit` columns are unused.
+- **Archiving is `Deck.archivedAt`, applied to a whole subtree at once**
+  (`archiveDeck` / `unarchiveDeck` / `moveDeck` keep that invariant), so
+  queries only check the deck's own column. Archived decks are out of the
+  queue, every count and the main tree; `loadDeckTree` returns them as
+  `archivedRoots`. Don't model archiving as a deck named "Archive".
 - **Every page is `dynamic = "force-dynamic"`** (set on the root layout). All of
   it is per-user; nothing is prerenderable.
 - **Form-bound server actions must return `void`.** Throw on validation failure;
   returning `{ error }` from an `action={}` prop is a type error.
-- **Articles are generated at `nextLevelUp(profile.level)`, not at the profile's
+- **Stories are generated at `nextLevelUp(profile.level)`, not at the profile's
   level.** That i+1 gap is the point of the feature, not a bug.
 - **One shared password gates the whole app** (`src/proxy.ts` + `src/lib/auth.ts`,
   env `LARA_PASSWORD`). Public: `/login`, `/api/health`, `/_next/*`, favicon,
@@ -80,6 +100,16 @@ See `README.md` for what it is and how to run it.
   agent). Generate SQL with `prisma migrate diff --from-config-datasource
   --to-schema prisma/schema.prisma --script -o prisma/migrations/<ts>_<name>/migration.sql`,
   then `prisma migrate deploy` and `prisma generate`.
+- **Migrations reach production only through `npm run db:migrate:deploy`.**
+  `prisma.config.ts` targets Neon (`.env.neon-prod`) only for that script, any
+  `*:prod` script, or `PRISMA_TARGET=production`; plain `npx prisma …` always
+  hits the local DB. Check with `npm run db:migrate:status:prod` (read-only).
+  Don't rename `.env.neon-prod` to `.env.production.local`: `next build` would
+  auto-load it in any local production build.
+- **Tests: `npm test` (unit) and `npm run test:int` (integration)** — see
+  `tests/README.md`. No browser tests, by choice. The integration suite starts
+  its own embedded Postgres and refuses non-loopback URLs; never point them elsewhere, never call real AI/TTS/Blob
+  from a test, and keep test files serial (they share one database per run).
 
 ## Commands
 
@@ -88,5 +118,7 @@ npm run db:dev       # local Postgres (must be running for anything DB-backed)
 npm run db:migrate   # after editing prisma/schema.prisma
 npm run lint         # react-hooks/purity is an error, not a warning
 npm run build        # runs prisma generate + tsc
+npm run typecheck    # prisma generate + tsc --noEmit (includes tests)
+npm test             # unit; npm run test:int for the DB-backed suite
 npm run import:anki-collection -- "<…/Anki2/User 1/collection.anki2>" sv --dry-run
 ```

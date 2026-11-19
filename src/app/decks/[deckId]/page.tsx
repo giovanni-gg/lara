@@ -1,13 +1,13 @@
 import { Fragment } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronRight, FolderPlus, Play } from "lucide-react";
+import { Archive, ChevronRight, FolderPlus, Headphones, Play } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { getLanguage } from "@/lib/languages";
 import { flattenWithPaths, loadDeckTree, type DeckNode } from "@/lib/deck-tree";
 import { EMPTY_DECK_STATS } from "@/lib/study";
-import { moveDeck } from "@/app/actions";
+import { archiveDeck, moveDeck, unarchiveDeck, updateDeckNewCardsPerDay } from "@/app/actions";
 import { GenerateDeckForm } from "@/components/generate-deck-form";
 import { CardRow } from "@/components/card-row";
 import { DeckTree } from "@/components/deck-tree";
@@ -30,6 +30,8 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
       direction: true,
       parentId: true,
       profileId: true,
+      archivedAt: true,
+      newCardsPerDay: true,
       profile: { select: { targetLanguage: true, sourceLanguage: true } },
     },
   });
@@ -119,16 +121,41 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
         </div>
       </header>
 
+      {deck.archivedAt ? (
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-line bg-raised px-3 py-2 text-sm">
+          <Archive className="size-4 shrink-0 text-muted" aria-hidden />
+          <span className="flex-1 text-muted">Archived — not studied</span>
+          <form action={unarchiveDeck}>
+            <input type="hidden" name="deckId" value={deck.id} />
+            <Button type="submit" variant="secondary" size="sm">
+              Unarchive
+            </Button>
+          </form>
+        </div>
+      ) : null}
+
       <div className="flex gap-2">
-        <Stat value={stats.fresh} label="New" />
+        <Stat value={stats.newToday} label="New" />
         <Stat value={learning} label="Learn" tone={learning > 0 ? "accent" : "default"} />
         <Stat value={review} label="Due" tone={review > 0 ? "good" : "default"} />
       </div>
 
-      {stats.due + stats.fresh > 0 ? (
+      {!deck.archivedAt && stats.due + stats.newToday > 0 ? (
         <ButtonLink href={`/study?deck=${deck.id}`} className="mt-3 w-full">
           <Play className="size-4" aria-hidden />
           Study {subdecks.length > 0 ? "all" : "this deck"}
+        </ButtonLink>
+      ) : null}
+
+      {!deck.archivedAt && stats.total > 0 ? (
+        <ButtonLink
+          href={`/articles/new?deck=${deck.id}`}
+          variant="ghost"
+          size="sm"
+          className="mt-1 w-full"
+        >
+          <Headphones className="size-4" aria-hidden />
+          Make a story from this deck
         </ButtonLink>
       ) : null}
 
@@ -192,6 +219,25 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
       <section className="mt-6 mb-4">
         <h2 className="mb-2 font-display text-base font-semibold">Deck options</h2>
         <div className="space-y-2 rounded-2xl border border-line bg-surface p-2.5">
+          <form action={updateDeckNewCardsPerDay} className="flex items-center gap-2">
+            <input type="hidden" name="deckId" value={deck.id} />
+            <label htmlFor="new-per-day" className="flex-1 text-xs text-muted">
+              New cards / day
+            </label>
+            <input
+              id="new-per-day"
+              name="newCardsPerDay"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={999}
+              defaultValue={deck.newCardsPerDay}
+              className="w-16 rounded-lg border border-line bg-raised px-2 py-1.5 text-right text-base text-foreground tabular-nums outline-none focus:border-accent"
+            />
+            <Button type="submit" variant="secondary" size="sm" className="shrink-0">
+              Save
+            </Button>
+          </form>
           <form action={moveDeck} className="flex items-center gap-2">
             <input type="hidden" name="deckId" value={deck.id} />
             <label htmlFor="move-parent" className="shrink-0 text-xs text-muted">
@@ -226,6 +272,15 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
             <FolderPlus className="size-4" aria-hidden />
             New subdeck
           </ButtonLink>
+          {deck.archivedAt ? null : (
+            <form action={archiveDeck}>
+              <input type="hidden" name="deckId" value={deck.id} />
+              <Button type="submit" variant="ghost" size="sm" className="w-full justify-start px-1">
+                <Archive className="size-4" aria-hidden />
+                Archive deck{subdecks.length > 0 ? " and its subdecks" : ""}
+              </Button>
+            </form>
+          )}
         </div>
       </section>
     </Screen>

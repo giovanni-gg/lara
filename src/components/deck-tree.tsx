@@ -14,13 +14,10 @@ import { cn } from "@/lib/utils";
 export function DeckTree({
   roots,
   openFolders = "due",
-  newLimit,
 }: {
   roots: DeckNode[];
   /** "due": expand groups with due cards. "none": start collapsed. */
   openFolders?: "due" | "none";
-  /** Cap the New column at the daily limit, as Anki does. */
-  newLimit?: number;
 }) {
   return (
     <div className="rounded-2xl border border-line bg-surface px-1 pb-1">
@@ -35,7 +32,6 @@ export function DeckTree({
             node={node}
             depth={0}
             openFolders={openFolders}
-            newLimit={newLimit}
           />
         ))}
       </ul>
@@ -47,12 +43,10 @@ function DeckTreeItem({
   node,
   depth,
   openFolders,
-  newLimit,
 }: {
   node: DeckNode;
   depth: number;
   openFolders: "due" | "none";
-  newLimit?: number;
 }) {
   const indent = { paddingLeft: `${depth * 16}px` };
 
@@ -64,7 +58,7 @@ function DeckTreeItem({
             <span className="w-6 shrink-0" aria-hidden />
             <span className="truncate">{node.name}</span>
           </span>
-          <Counts stats={node.total} newLimit={newLimit} />
+          <Counts stats={node.total} />
         </Link>
       </li>
     );
@@ -87,7 +81,7 @@ function DeckTreeItem({
               {node.name}
             </Link>
           </span>
-          <Counts stats={node.total} newLimit={newLimit} />
+          <Counts stats={node.total} />
         </summary>
         <ul>
           {node.children.map((child) => (
@@ -96,7 +90,6 @@ function DeckTreeItem({
               node={child}
               depth={depth + 1}
               openFolders={openFolders}
-              newLimit={newLimit}
             />
           ))}
         </ul>
@@ -119,8 +112,9 @@ function ColumnLabels() {
   );
 }
 
-function Counts({ stats, newLimit }: { stats: DeckStats; newLimit?: number }) {
-  const fresh = newLimit === undefined ? stats.fresh : Math.min(stats.fresh, newLimit);
+function Counts({ stats }: { stats: DeckStats }) {
+  // Today's allowance per deck (Deck.newCardsPerDay), summed up the tree.
+  const fresh = stats.newToday;
   const learn = stats.learning;
   const review = stats.due - stats.learning;
   return (
