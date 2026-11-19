@@ -13,7 +13,7 @@ export async function proxy(request: NextRequest) {
   const gate = gateState();
   if (gate.mode === "open") return NextResponse.next();
   if (gate.mode === "misconfigured") {
-    return new NextResponse("LARA_PASSWORD is not configured", { status: 503 });
+    return new NextResponse("LARA_ACCOUNTS (or LARA_PASSWORD) is not configured", { status: 503 });
   }
 
   if (await isValidSession(request.cookies.get(AUTH_COOKIE)?.value)) {

@@ -8,6 +8,13 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { CardDirection, CardType, FsrsState } from "../src/generated/prisma/enums";
 import { replayHistory, type RatingValue } from "../src/lib/srs";
+import { getLanguage } from "../src/lib/languages";
+
+/** Same rule as session.ts: "ebba@lara.local" → "Ebba", the default → "You". */
+function nameForEmail(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  return !local || local === "you" ? "You" : local.charAt(0).toUpperCase() + local.slice(1);
+}
 
 /**
  * Brings an Anki profile into Lara: decks, cards, media, scheduling state, and
@@ -241,7 +248,17 @@ function splitTrailingNote(text: string): { text: string; note: string | null } 
   return { text: match[1].trim(), note: match[2].trim() };
 }
 
-function parseNote(fields: string[]): ParsedContent {
+/**
+ * `targetCode` / `sourceCode` pick the lines of a labelled card ("EN: …",
+ * "PT: …", "SV: …"): the learner's target language is the answer, their
+ * source language the translation, any other labels become notes.
+ */
+function parseNote(
+  fields: string[],
+  { targetCode = "sv", sourceCode = "en" }: { targetCode?: string; sourceCode?: string } = {},
+): ParsedContent {
+  const TARGET = targetCode.toUpperCase();
+  const SOURCE = sourceCode.toUpperCase();
   const [front = "", back = ""] = fields;
 
   const frontImages = imagesIn(front);
@@ -258,12 +275,16 @@ function parseNote(fields: string[]): ParsedContent {
       const extra = lines
         .filter((line) => !/^[A-Z]{2}:/.test(line.text) && line.text)
         .map((line) => line.text);
-      const others = [...labelled].filter(([k]) => k !== "EN" && k !== "SV").map(([k, v]) => `${k}: ${v}`);
+      const targetLabel = labelled.has(TARGET) ? TARGET : "EN";
+      const sourceLabel = labelled.has(SOURCE) && SOURCE !== targetLabel ? SOURCE : "EN";
+      const others = [...labelled]
+        .filter(([k]) => k !== targetLabel && k !== sourceLabel)
+        .map(([k, v]) => `${k}: ${v}`);
       return {
         shape: "picture-labelled",
         cardType: CardType.PICTURE,
-        target: labelled.get("SV") ?? labelled.get("EN")!,
-        source: labelled.get("EN")!,
+        target: labelled.get(targetLabel)!,
+        source: labelled.get(sourceLabel)!,
         targetSentence: null,
         sourceSentence: null,
         notes: [...others, ...extra].join("\n") || null,
@@ -507,7 +528,10 @@ async function main() {
       const note = notes.get(card.nid);
       if (!note) continue;
 
-      const content = parseNote(note.flds.split("\x1f"));
+      const content = parseNote(note.flds.split("\x1f"), {
+        targetCode: args.targetLanguage,
+        sourceCode: args.sourceLanguage,
+      });
       if (!content.target || !content.source) {
         // Lara requires both sides; a blank Anki field shouldn't abort the run.
         content.target ||= "(blank)";
@@ -716,13 +740,18 @@ async function main() {
       const email = process.env.LARA_USER_EMAIL ?? "you@lara.local";
       const user =
         (await prisma.user.findUnique({ where: { email } })) ??
-        (await prisma.user.create({ data: { email, name: "You" } }));
+        (await prisma.user.create({ data: { email, name: nameForEmail(email) } }));
       const profile =
         (await prisma.languageProfile.findUnique({
           where: { userId_targetLanguage: { userId: user.id, targetLanguage: args.targetLanguage } },
         })) ??
         (await prisma.languageProfile.create({
-          data: { userId: user.id, targetLanguage: args.targetLanguage, sourceLanguage: args.sourceLanguage },
+          data: {
+            userId: user.id,
+            targetLanguage: args.targetLanguage,
+            sourceLanguage: args.sourceLanguage,
+            voiceId: getLanguage(args.targetLanguage).voiceId ?? null,
+          },
         }));
 
       const existingCards = await prisma.card.count({ where: { deck: { profileId: profile.id } } });

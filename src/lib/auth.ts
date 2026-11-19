@@ -1,44 +1,80 @@
-// The password gate. One shared password, no accounts: this decides whether a
-// request gets in at all, not who it is (that's `session.ts`). Pure Web Crypto
-// so it runs unchanged in `proxy.ts` and in server actions.
+// The password gate. A few accounts, each with one password and no username:
+// the password you type decides whose app you get. This file decides whether
+// a request gets in and as whom; `session.ts` turns that into a User row.
+// Pure Web Crypto, so it runs unchanged in `proxy.ts` and in server code.
+//
+// Accounts come from LARA_ACCOUNTS, a JSON object of email → password:
+//   LARA_ACCOUNTS={"you@lara.local":"…","ebba@lara.local":"…"}
+// For a single account, LARA_PASSWORD alone still works (it belongs to
+// LARA_USER_EMAIL, default you@lara.local).
 
 export const AUTH_COOKIE = "lara_session";
 
 /** 400 days — the most a browser will honour, so the phone stays signed in. */
 export const AUTH_COOKIE_MAX_AGE = 400 * 24 * 60 * 60;
 
+export const DEFAULT_EMAIL = "you@lara.local";
+
+export type Account = { email: string; password: string };
+
 export type GateState =
-  | { mode: "open" } // no password and not on Vercel: local dev, gate off
-  | { mode: "misconfigured" } // no password on Vercel: fail closed
-  | { mode: "locked"; password: string };
+  | { mode: "open" } // no accounts and not on Vercel: local dev, gate off
+  | { mode: "misconfigured" } // no accounts on Vercel: fail closed
+  | { mode: "locked"; accounts: Account[] };
+
+function configuredAccounts(): Account[] {
+  const raw = process.env.LARA_ACCOUNTS;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return Object.entries(parsed)
+        .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
+        .map(([email, password]) => ({ email: email.toLowerCase(), password }));
+    } catch {
+      return []; // unparseable → treated as unconfigured, which fails closed on Vercel
+    }
+  }
+  const password = process.env.LARA_PASSWORD;
+  if (!password) return [];
+  return [{ email: (process.env.LARA_USER_EMAIL ?? DEFAULT_EMAIL).toLowerCase(), password }];
+}
 
 export function gateState(): GateState {
-  const password = process.env.LARA_PASSWORD;
-  if (password) return { mode: "locked", password };
+  const accounts = configuredAccounts();
+  if (accounts.length > 0) return { mode: "locked", accounts };
   return process.env.VERCEL ? { mode: "misconfigured" } : { mode: "open" };
 }
 
-/**
- * The cookie value: HMAC-SHA256 of a fixed label, keyed by the password. Not
- * the password itself, and changing the password invalidates every device.
- */
-export async function sessionToken(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
+const encoder = new TextEncoder();
+
+async function hmac(key: string, message: string): Promise<string> {
+  const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(password),
+    encoder.encode(key),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
-  const mac = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    encoder.encode("lara-session-v1"),
-  );
-  return Array.from(new Uint8Array(mac), (b) =>
-    b.toString(16).padStart(2, "0"),
-  ).join("");
+  const mac = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(message));
+  return Array.from(new Uint8Array(mac), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * The cookie value for an account: `<email, base64url>.<HMAC of the email,
+ * keyed by its password>`. Not the password, unforgeable without it, and
+ * changing an account's password signs that account out everywhere.
+ */
+export async function sessionToken(account: Account): Promise<string> {
+  const id = btoa(account.email).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return `${id}.${await hmac(account.password, `lara-session-v2:${account.email}`)}`;
+}
+
+function decodeEmail(id: string): string | null {
+  try {
+    return atob(id.replace(/-/g, "+").replace(/_/g, "/"));
+  } catch {
+    return null;
+  }
 }
 
 function constantTimeEqual(a: string, b: string): boolean {
@@ -48,28 +84,42 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** Whether a cookie value unlocks the gate. True when the gate is off. */
-export async function isValidSession(
-  cookieValue: string | undefined,
-): Promise<boolean> {
+/**
+ * Who a cookie belongs to: the account's email, or null if it opens nothing.
+ * With the gate off (local dev) every request is the default account.
+ */
+export async function sessionEmail(cookieValue: string | undefined): Promise<string | null> {
   const gate = gateState();
-  if (gate.mode === "open") return true;
-  if (gate.mode === "misconfigured" || !cookieValue) return false;
-  return constantTimeEqual(cookieValue, await sessionToken(gate.password));
+  if (gate.mode === "open") return process.env.LARA_USER_EMAIL ?? DEFAULT_EMAIL;
+  if (gate.mode === "misconfigured" || !cookieValue) return null;
+
+  const email = decodeEmail(cookieValue.split(".")[0] ?? "");
+  const account = gate.accounts.find((a) => a.email === email);
+  if (!account) return null;
+  return constantTimeEqual(cookieValue, await sessionToken(account)) ? account.email : null;
+}
+
+/** Whether a cookie gets through the gate at all. */
+export async function isValidSession(cookieValue: string | undefined): Promise<boolean> {
+  return (await sessionEmail(cookieValue)) !== null;
 }
 
 /**
- * Checks a typed password. Compares the derived tokens rather than the raw
- * strings, so the comparison is fixed-length and leaks nothing about length.
+ * Which account a typed password opens, if any. Compares derived HMACs rather
+ * than raw strings, so each comparison is fixed-length and leaks no length.
  */
-export async function checkPassword(attempt: string): Promise<boolean> {
+export async function accountForPassword(attempt: string): Promise<Account | null> {
   const gate = gateState();
-  if (gate.mode !== "locked") return gate.mode === "open";
-  const [given, expected] = await Promise.all([
-    sessionToken(attempt),
-    sessionToken(gate.password),
-  ]);
-  return constantTimeEqual(given, expected);
+  if (gate.mode !== "locked") return null;
+  let match: Account | null = null;
+  for (const account of gate.accounts) {
+    const [given, expected] = await Promise.all([
+      hmac(attempt, "lara-password-check"),
+      hmac(account.password, "lara-password-check"),
+    ]);
+    if (constantTimeEqual(given, expected)) match = account;
+  }
+  return match;
 }
 
 /** Only same-origin relative paths; anything else (`//evil`, `https:`) → "/". */

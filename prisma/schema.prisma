@@ -156,7 +156,8 @@ model Card {
   suspended Boolean  @default(false)
 
   /// Anki card id, for cards brought over by `scripts/import-anki.ts`.
-  ankiId BigInt? @unique
+  /// Unique per user only: two Anki profiles can share ids.
+  ankiId BigInt?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -166,6 +167,7 @@ model Card {
   reviews  Review[]
   messages CardChatMessage[]
 
+  @@unique([userId, ankiId])
   @@index([deckId, due])
   @@index([userId, due])
   @@index([deckId, state])
@@ -246,11 +248,14 @@ model Review {
 
   /// Anki revlog id for history imported from Anki; null for reviews done in
   /// Lara. The importer uses this to refuse wiping Lara-native progress.
-  ankiId BigInt? @unique
+  /// Unique per user only: Anki revlog ids are millisecond timestamps, and two
+  /// profiles studied on one device do collide.
+  ankiId BigInt?
 
   card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, ankiId])
   @@index([userId, reviewedAt])
   @@index([cardId, reviewedAt])
 }

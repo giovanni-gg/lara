@@ -1,22 +1,35 @@
+import { cookies } from "next/headers";
 import { prisma } from "./db";
+import { AUTH_COOKIE, sessionEmail } from "./auth";
 
 /**
- * Single-user for now: every request resolves to one local account, created on
- * first use. When real auth lands (Clerk via the Vercel Marketplace, or
- * NextAuth), this is the only function that has to change — nothing else in the
- * app reads the user identity directly.
+ * Who is using the app. The signed session cookie (see `auth.ts`) names the
+ * account; each account is one User row, created on first sign-in. With the
+ * gate off in local dev, every request is the default account.
+ *
+ * This is the only place that resolves the user — everything else takes the
+ * User (or its profile) from here, and every query is scoped by its id.
  */
-
-const LOCAL_EMAIL = process.env.LARA_USER_EMAIL ?? "you@lara.local";
-
 export async function getCurrentUser() {
+  const email = await sessionEmail((await cookies()).get(AUTH_COOKIE)?.value);
+  // proxy.ts already turned away requests without a valid session; reaching
+  // here without one means a route skipped the gate.
+  if (!email) throw new Error("Not signed in");
+
   // Upsert rather than find-then-create: concurrent requests would otherwise
   // race on the unique email.
   return prisma.user.upsert({
-    where: { email: LOCAL_EMAIL },
+    where: { email },
     update: {},
-    create: { email: LOCAL_EMAIL, name: "You" },
+    create: { email, name: nameFor(email) },
   });
+}
+
+/** "ebba@lara.local" → "Ebba"; the default account is "You". */
+function nameFor(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  if (!local || local === "you") return "You";
+  return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
 /** The profile the app is currently studying, plus every profile for switching. */
