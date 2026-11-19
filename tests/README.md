@@ -18,7 +18,7 @@ There are no browser tests, by choice.
   `127.0.0.1` and refuses any other address (`src/lib/local-database.ts`).
   Never point a test at `.env`'s `prisma dev` database or at Neon.
 - **Never real AI, TTS or Blob.** `tests/integration/setup.ts` blanks
-  `ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`, `ELEVENLABS_API_KEY`,
+  `ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`, `ELEVENLABS_API_KEY`, `GEMINI_API_KEY`,
   `BLOB_READ_WRITE_TOKEN` and `VERCEL_OIDC_TOKEN` and sets
   `MEDIA_STORAGE=local`, so the app takes its "not configured" paths: AI
   throws `MissingAiCredentialsError` (routes answer 503), TTS is skipped. To
@@ -68,6 +68,7 @@ Next's request-only modules are stubbed (`stubs/`); everything else is real:
 | `next/headers` | `cookies()` / `headers()` over an in-memory store; `cookies().set()` works | `setCookie`, `getCookie`, `getCookieOptions`, `setHeader` (from `./stubs/next-headers`) |
 | `next/navigation` | `redirect(url)` throws `RedirectError` (`.url`), `notFound()` throws `NotFoundError` | `await expect(action()).rejects.toMatchObject({ url: "/" })` |
 | `next/cache` | `revalidatePath` / `revalidateTag` / `updateTag` / `refresh` are recorded | `revalidated` array (from `./stubs/next-cache`) |
+| `next/server` | real `NextResponse` / `NextRequest`; `after(cb)` queues `cb` instead of running it after a response | `await settleAfter()` runs the queue (from `./stubs/next-server`); `pictures.test.ts` is the example |
 | `server-only` | empty | |
 
 All of these are reset before every test. `login.test.ts` is the worked

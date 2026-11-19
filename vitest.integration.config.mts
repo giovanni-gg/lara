@@ -17,13 +17,15 @@ const stubs = resolve(root, "tests/integration/stubs");
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@": resolve(root, "src"),
-      "server-only": resolve(stubs, "server-only.ts"),
-      "next/cache": resolve(stubs, "next-cache.ts"),
-      "next/headers": resolve(stubs, "next-headers.ts"),
-      "next/navigation": resolve(stubs, "next-navigation.ts"),
-    },
+    alias: [
+      { find: "@", replacement: resolve(root, "src") },
+      { find: "server-only", replacement: resolve(stubs, "server-only.ts") },
+      { find: "next/cache", replacement: resolve(stubs, "next-cache.ts") },
+      { find: "next/headers", replacement: resolve(stubs, "next-headers.ts") },
+      { find: "next/navigation", replacement: resolve(stubs, "next-navigation.ts") },
+      // Exactly `next/server`: the stub itself imports from next/dist/server/….
+      { find: /^next\/server$/, replacement: resolve(stubs, "next-server.ts") },
+    ],
   },
   test: {
     environment: "node",

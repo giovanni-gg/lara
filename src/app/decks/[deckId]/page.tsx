@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getLanguage } from "@/lib/languages";
 import { flattenWithPaths, loadDeckTree, type DeckNode } from "@/lib/deck-tree";
 import { EMPTY_DECK_STATS } from "@/lib/study";
+import { imagesAvailable } from "@/lib/images";
 import { archiveDeck, moveDeck, unarchiveDeck, updateDeckNewCardsPerDay } from "@/app/actions";
 import { GenerateDeckForm } from "@/components/generate-deck-form";
 import { CardRow } from "@/components/card-row";
@@ -174,6 +175,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
           targetName={target.name}
           sourceName={source.name}
           defaultDirection={deck.direction}
+          picturesAvailable={imagesAvailable()}
         />
         <ButtonLink
           href={`/decks/${deck.id}/cards/new`}

@@ -40,6 +40,7 @@ Nothing is required to run the app, but the interesting parts need credentials:
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Deck and story generation; the card tutor | Those return a clear 503; studying and manual cards still work |
 | `ELEVENLABS_API_KEY` | Audio on cards and stories | Content is created silently, no audio |
+| `GEMINI_API_KEY` | Pictures for "Picture first" cards (`gemini-3.1-flash-lite-image`, ~$0.034 each) | Picture cards are created without one and studied from the translation |
 | `ELEVENLABS_AGENT_ID` | Speak, with `ELEVENLABS_API_KEY` (see below) | The Speak tab says it isn't set up; `/api/speak/session` answers 503 |
 
 Voice IDs for Swedish and Brazilian Portuguese carried over from `anki_creator`
@@ -89,7 +90,7 @@ npm run typecheck      # prisma generate + tsc --noEmit, test files included
   (`embedded-postgres`) on a free loopback port, applies every migration with
   `prisma migrate deploy`, and deletes it afterwards. It refuses any database
   address that isn't `127.0.0.1`/`localhost`, so they can't reach Neon.
-- Nothing calls Anthropic, ElevenLabs or Blob: the suites blank those keys, so
+- Nothing calls Anthropic, ElevenLabs, Gemini or Blob: the suites blank those keys, so
   the app takes its "not configured" paths (AI routes answer 503).
 - There are no browser tests, by choice.
 - CI (`.github/workflows/ci.yml`) runs lint, typecheck, unit and integration
@@ -167,6 +168,7 @@ src/lib/
   speak/prompt.ts          The Speak tutor's prompt and session overrides (pure)
   speak/session.ts         Speak deck words and the ElevenLabs token mint
   tts.ts                   ElevenLabs, content-hash cached
+  images.ts                Gemini card pictures (split literal/creative, ported from anki_creator)
   media.ts                 Local file storage; swap for Blob in production
   session.ts               Current user — the single seam real auth goes through
 src/app/

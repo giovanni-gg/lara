@@ -1,11 +1,20 @@
-import { CardType, type CardDirection } from "@/generated/prisma/enums";
+import { CardDirection, CardType } from "@/generated/prisma/enums";
 
 /** The card(s) to create for one word, given a deck's direction setting. */
 export function cardTypesFor(direction: CardDirection): CardType[] {
-  if (direction === "BOTH") return [CardType.RECOGNITION, CardType.PRODUCTION];
-  return [direction === "PRODUCTION" ? CardType.PRODUCTION : CardType.RECOGNITION];
+  switch (direction) {
+    // No longer offered, but old decks still carry it.
+    case "BOTH":
+      return [CardType.RECOGNITION, CardType.PRODUCTION];
+    case "PRODUCTION":
+      return [CardType.PRODUCTION];
+    case "PICTURE":
+      return [CardType.PICTURE];
+    default:
+      return [CardType.RECOGNITION];
+  }
 }
 
 export function isCardDirection(value: unknown): value is CardDirection {
-  return value === "RECOGNITION" || value === "PRODUCTION" || value === "BOTH";
+  return typeof value === "string" && Object.hasOwn(CardDirection, value);
 }

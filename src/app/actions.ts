@@ -1,15 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser, requireActiveProfile } from "@/lib/session";
 import { getLanguage } from "@/lib/languages";
 import { newCardState } from "@/lib/srs";
 import { trySynthesize, ttsAvailable } from "@/lib/tts";
-import { CefrLevel } from "@/generated/prisma/enums";
+import { CardType, CefrLevel } from "@/generated/prisma/enums";
 import { cardTypesFor, isCardDirection } from "@/lib/card-direction";
 import { subtreeIds } from "@/lib/deck-tree";
+import { generateCardImage, imagesAvailable } from "@/lib/images";
 
 export async function createProfile(formData: FormData) {
   const user = await getCurrentUser();
@@ -233,7 +235,7 @@ export async function createCard(formData: FormData) {
   const sourceSentence = String(formData.get("sourceSentence") ?? "").trim() || null;
   const notes = String(formData.get("notes") ?? "").trim() || null;
 
-  await prisma.card.createMany({
+  const created = await prisma.card.createManyAndReturn({
     data: cardTypes.map((cardType) => ({
       userId: user.id,
       deckId,
@@ -246,7 +248,22 @@ export async function createCard(formData: FormData) {
       audioUrl,
       ...newCardState(),
     })),
+    select: { id: true, cardType: true },
   });
+
+  // The picture is drawn after the response; until it lands the card is
+  // studied from its translation.
+  const picture = created.find((card) => card.cardType === CardType.PICTURE);
+  if (picture && !imagesAvailable()) {
+    console.warn("[createCard] GEMINI_API_KEY is not set: picture card created without a picture");
+  } else if (picture) {
+    const languages = { targetLanguage: profile.targetLanguage, sourceLanguage: profile.sourceLanguage };
+    after(async () => {
+      const imageUrl = await generateCardImage({ ...languages, target, source });
+      // updateMany: the card may have been deleted while its picture was drawn.
+      if (imageUrl) await prisma.card.updateMany({ where: { id: picture.id }, data: { imageUrl } });
+    });
+  }
 
   revalidatePath(`/decks/${deckId}`);
 }

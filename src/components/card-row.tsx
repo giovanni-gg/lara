@@ -45,6 +45,14 @@ export function CardRow({
               loading="lazy"
               className="size-9 shrink-0 rounded-lg border border-line object-cover"
             />
+          ) : card.cardType === "PICTURE" ? (
+            // Drawn after the card was created; it shows up on the next visit.
+            <span
+              title="Picture coming…"
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-dashed border-line text-muted/60"
+            >
+              <ImageIcon className="size-4" aria-label="Picture coming" />
+            </span>
           ) : null}
           <div className="min-w-0 flex-1">
             <p className="font-display truncate text-[15px] font-medium leading-tight">

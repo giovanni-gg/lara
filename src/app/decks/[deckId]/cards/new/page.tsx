@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getLanguage } from "@/lib/languages";
 import { createCard } from "@/app/actions";
 import { DirectionPicker } from "@/components/direction-picker";
+import { imagesAvailable } from "@/lib/images";
 import { Button, Field, Screen, inputStyles } from "@/components/ui";
 
 export default async function NewCardPage({
@@ -80,14 +81,19 @@ export default async function NewCardPage({
 
         <div>
           <span className="mb-1 block text-sm font-medium">Show first</span>
-          <DirectionPicker target={target} source={source} defaultValue={deck.direction} />
+          <DirectionPicker
+            target={target}
+            source={source}
+            defaultValue={deck.direction}
+            picturesAvailable={imagesAvailable()}
+          />
         </div>
 
         <Button type="submit" className="w-full">
           Add card
         </Button>
         <p className="text-center text-xs text-muted">
-          Audio is generated automatically when ELEVENLABS_API_KEY is set.
+          Audio, and a picture card&apos;s picture, are made automatically.
         </p>
       </form>
     </Screen>

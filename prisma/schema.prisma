@@ -214,12 +214,14 @@ enum CardType {
   PICTURE
 }
 
-/// The default facing for cards added to a deck. BOTH adds one RECOGNITION
-/// and one PRODUCTION card per word, like Anki's "Basic (and reversed card)".
+/// The default facing for cards added to a deck. PICTURE adds a PICTURE card
+/// with an AI-drawn image (src/lib/images.ts). BOTH (one RECOGNITION and one
+/// PRODUCTION card per word) is no longer offered but stays valid for old decks.
 enum CardDirection {
   RECOGNITION
   PRODUCTION
   BOTH
+  PICTURE
 }
 
 enum FsrsState {

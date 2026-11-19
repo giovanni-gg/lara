@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Wand2 } from "lucide-react";
 import { Button, inputStyles } from "@/components/ui";
-import { DirectionPicker, type Direction } from "@/components/direction-picker";
+import { DirectionPicker, pickerDirection, type Direction } from "@/components/direction-picker";
+import type { CardDirection } from "@/generated/prisma/enums";
 
 const SUGGESTIONS = [
   "ordering food at a restaurant",
@@ -23,17 +24,20 @@ export function GenerateDeckForm({
   targetName,
   sourceName,
   defaultDirection = "RECOGNITION",
+  picturesAvailable = true,
 }: {
   deckId?: string;
   targetName: string;
   sourceName: string;
   /** The deck's own default when adding to one. */
-  defaultDirection?: Direction;
+  defaultDirection?: CardDirection;
+  /** False when the server can't draw pictures (no GEMINI_API_KEY). */
+  picturesAvailable?: boolean;
 }) {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(15);
-  const [direction, setDirection] = useState<Direction>(defaultDirection);
+  const [direction, setDirection] = useState<Direction>(pickerDirection(defaultDirection));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -62,7 +66,9 @@ export function GenerateDeckForm({
       setResult(
         `Added ${data.created} card${data.created === 1 ? "" : "s"} to ${data.deck.name}` +
           (data.skipped > 0 ? ` (${data.skipped} duplicate skipped)` : "") +
-          (data.audio ? "" : " — no audio, ELEVENLABS_API_KEY is unset"),
+          (data.audio ? "" : " — no audio, ELEVENLABS_API_KEY is unset") +
+          (data.pictures === "drawing" ? ". Pictures are being drawn and appear in a minute or two." : "") +
+          (data.pictures === "unavailable" ? " — no pictures, GEMINI_API_KEY is unset" : ""),
       );
       setPrompt("");
       // A brand-new deck: open it. Adding to an existing deck: stay and refresh.
@@ -107,6 +113,7 @@ export function GenerateDeckForm({
         source={sourceName}
         value={direction}
         onChange={setDirection}
+        picturesAvailable={picturesAvailable}
         className="mt-2"
       />
 

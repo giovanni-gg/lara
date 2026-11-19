@@ -8,6 +8,7 @@ import { flattenWithPaths, loadDeckTree } from "@/lib/deck-tree";
 import { DirectionPicker } from "@/components/direction-picker";
 import { Button, Field, Screen, inputStyles } from "@/components/ui";
 import { GenerateDeckForm } from "@/components/generate-deck-form";
+import { imagesAvailable } from "@/lib/images";
 
 export default async function NewDeckPage({ searchParams }: PageProps<"/decks/new">) {
   const { parent } = await searchParams;
@@ -21,6 +22,7 @@ export default async function NewDeckPage({ searchParams }: PageProps<"/decks/ne
 
   const target = getLanguage(active.targetLanguage).name;
   const source = getLanguage(active.sourceLanguage).name;
+  const pictures = imagesAvailable();
 
   return (
     <Screen>
@@ -42,7 +44,7 @@ export default async function NewDeckPage({ searchParams }: PageProps<"/decks/ne
         // The quick path: describe it, get a finished deck with audio.
         <section className="mb-6">
           <h2 className="mb-2 font-display text-base font-semibold">Generate with AI</h2>
-          <GenerateDeckForm targetName={target} sourceName={source} />
+          <GenerateDeckForm targetName={target} sourceName={source} picturesAvailable={pictures} />
           <p className="mt-4 text-center text-xs uppercase tracking-wide text-muted">or start empty</p>
         </section>
       )}
@@ -95,7 +97,7 @@ export default async function NewDeckPage({ searchParams }: PageProps<"/decks/ne
 
         <div>
           <span className="mb-1 block text-sm font-medium">New cards show</span>
-          <DirectionPicker target={target} source={source} />
+          <DirectionPicker target={target} source={source} picturesAvailable={pictures} />
         </div>
 
         <Button type="submit" className="w-full">

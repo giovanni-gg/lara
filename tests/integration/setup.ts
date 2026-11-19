@@ -17,6 +17,7 @@ import { assertLocalDatabase } from "../../src/lib/local-database";
 import { TEST_USER_EMAIL } from "../world";
 import { clearRevalidated } from "./stubs/next-cache";
 import { resetRequest } from "./stubs/next-headers";
+import { clearAfter } from "./stubs/next-server";
 
 const url = inject("databaseUrl");
 if (!url) {
@@ -35,11 +36,13 @@ process.env.DATABASE_URL = url;
 process.env.DATABASE_URL_UNPOOLED = url;
 // Who src/lib/session.ts resolves as (it reads this at import).
 process.env.LARA_USER_EMAIL = TEST_USER_EMAIL;
-// Never real AI, TTS or Blob from a test: with these empty the app takes its
-// "not configured" paths (503 for AI, silent content for TTS, local media).
+// Never real AI, TTS, images or Blob from a test: with these empty the app
+// takes its "not configured" paths (503 for AI, silent content for TTS, picture
+// cards without pictures, local media).
 process.env.ANTHROPIC_API_KEY = "";
 process.env.AI_GATEWAY_API_KEY = "";
 process.env.ELEVENLABS_API_KEY = "";
+process.env.GEMINI_API_KEY = "";
 process.env.BLOB_READ_WRITE_TOKEN = "";
 process.env.VERCEL_OIDC_TOKEN = "";
 process.env.MEDIA_STORAGE = "local";
@@ -54,6 +57,7 @@ beforeEach(async () => {
   await resetDatabase();
   resetRequest();
   clearRevalidated();
+  clearAfter();
 });
 
 afterAll(async () => {
