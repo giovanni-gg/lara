@@ -4,7 +4,7 @@
 npm test                                             # unit (vitest.config.mts), ~1 s
 npm test -- src/lib/srs.test.ts                      # one file
 npm run test:watch                                   # re-run on save
-npm run test:int                                     # integration (vitest.integration.config.mts), ~15 s
+npm run test:int                                     # integration (vitest.integration.config.mts), ~20 s
 npm run test:int -- tests/integration/study.test.ts  # one file
 npm run test:int:watch
 npm run typecheck                                    # tsc over app AND tests (vitest doesn't type-check)

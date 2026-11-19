@@ -53,7 +53,7 @@ network (beyond the first `npm install`):
 
 ```bash
 npm test               # unit: pure functions, colocated src/**/*.test.ts (~1 s)
-npm run test:int       # integration: real Postgres, real Prisma, real actions (~15 s)
+npm run test:int       # integration: real Postgres, real Prisma, real actions (~20 s)
 npm run typecheck      # prisma generate + tsc --noEmit, test files included
 ```
 
@@ -145,7 +145,8 @@ src/app/
   decks/                   Deck list, deck detail, manual card entry
   articles/                Listen & Read: story library, new-story form, reader
   api/                     reviews, */generate, cards/[id]/chat, segments audio
-scripts/import-anki.ts     Anki collection importer (decks, cards, media, history)
+scripts/import-anki.ts     Anki collection importer CLI (decks, cards, media, history)
+scripts/anki/              The import itself (import.ts) and its pure field parsing (parse.ts)
 scripts/import-anki-csv.ts anki_creator CSV importer
 ```
 
