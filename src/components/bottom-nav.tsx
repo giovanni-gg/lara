@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookHeadphones, Layers, Settings, Sparkles } from "lucide-react";
+import { BookHeadphones, Layers, Mic, Settings, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Five tabs on a 375 px phone leave ~75 px each, so labels stay one short word.
 const TABS = [
   { href: "/", label: "Today", icon: Sparkles },
   { href: "/decks", label: "Decks", icon: Layers },
-  { href: "/articles", label: "Listen & Read", icon: BookHeadphones },
+  { href: "/articles", label: "Listen", icon: BookHeadphones },
+  { href: "/speak", label: "Speak", icon: Mic },
   { href: "/settings", label: "You", icon: Settings },
 ] as const;
 
