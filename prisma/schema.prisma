@@ -100,6 +100,13 @@ model Deck {
   /// so queries only ever need to check the deck's own column.
   archivedAt DateTime?
 
+  /// AI-written "Add cards" prompt chips for this deck (e.g. "colours" in
+  /// Adjectives), cached so the deck page doesn't pay a model call per visit.
+  /// `suggestionsCardCount` is the subtree's card count they were written
+  /// for; they're rewritten once it drifts by 5 or more.
+  suggestions          String[] @default([])
+  suggestionsCardCount Int?
+
   /// Anki deck id, for decks brought over by `scripts/import-anki.ts`.
   ankiId BigInt?
 

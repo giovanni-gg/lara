@@ -15,7 +15,8 @@ vi.mock("ai", () => ({
       object: {
         deckName: "x",
         emoji: "x",
-        cards: [],
+        // One card: an empty batch is an error.
+        cards: [{ target: "t", source: "s", targetSentence: "", sourceSentence: "", notes: "", tags: [] }],
         title: "t",
         titleTranslated: "t",
         segments: [],

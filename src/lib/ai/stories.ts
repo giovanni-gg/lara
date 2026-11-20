@@ -1,6 +1,7 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 import { assertAiCredentials, getModel } from "./model";
+import { anthropicOptions, loggedCall, MAX_RETRIES } from "./call";
 import { getLanguage, nextLevelUp } from "../languages";
 import type { VocabularyWord } from "../story-vocabulary";
 import type { CefrLevel } from "@/generated/prisma/enums";
@@ -186,8 +187,11 @@ export async function generateStory(input: GenerateStoryInput): Promise<{
   const writeAt = nextLevelUp(level);
   const spec = STORY_LENGTHS[length];
 
-  const { object } = await generateObject({
+  // Default effort: a story is real writing, unlike picking words for cards.
+  const { object } = await loggedCall("story", () => generateObject({
     model: getModel(),
+    maxRetries: MAX_RETRIES,
+    providerOptions: anthropicOptions(),
     schema: generatedStory,
     instructions: [
       `You write short fiction in ${target} for a learner whose native language is ${source}.`,
@@ -209,7 +213,7 @@ export async function generateStory(input: GenerateStoryInput): Promise<{
       "Split the output one entry per sentence. Treat a line of dialogue as its own sentence. Translations should read naturally, not word-for-word.",
     ].join("\n"),
     prompt: storyPrompt(input),
-  });
+  }));
 
   return { story: object, level: writeAt, targetWords: spec.words };
 }
