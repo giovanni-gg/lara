@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Wand2 } from "lucide-react";
 import { Button, inputStyles } from "@/components/ui";
 import { DirectionPicker, pickerDirection, type Direction } from "@/components/direction-picker";
-import { announceCardJob, onCardJobFinished } from "@/components/card-jobs-pill";
+import { onCardJobFinished, useCardJobs } from "@/components/card-jobs";
 import type { CardDirection } from "@/generated/prisma/enums";
 
 /** Topics for a brand-new deck. Inside a deck the chips come from the deck itself. */
@@ -22,7 +22,9 @@ const SUGGESTIONS = [
  * describe what you want, get cards with audio, study immediately.
  *
  * Never blocks: the route queues a job and answers at once, the cards are made
- * server-side, and the floating status pill (card-jobs-pill.tsx) follows it.
+ * server-side, and the decks section follows it inline (card-jobs.tsx): at
+ * the top of the deck and under this form, or as a placeholder row in the
+ * deck list for a new deck.
  */
 export function GenerateDeckForm({
   deckId,
@@ -43,6 +45,7 @@ export function GenerateDeckForm({
   picturesAvailable?: boolean;
 }) {
   const router = useRouter();
+  const cardJobs = useCardJobs();
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(15);
   const [direction, setDirection] = useState<Direction>(pickerDirection(defaultDirection));
@@ -96,10 +99,11 @@ export function GenerateDeckForm({
         return;
       }
 
-      // Queued: the pill takes it from here, on whichever screen comes next.
-      announceCardJob(data.job);
+      // Queued: the inline status takes it from here. In a deck it shows on
+      // this page; a brand-new deck is a placeholder row in the list until
+      // the model has named it.
+      cardJobs?.announce(data.job);
       setPrompt("");
-      // A brand-new deck appears in the list once the model has named it.
       if (!deckId) router.push("/decks");
     } catch {
       setError("Could not reach the server");

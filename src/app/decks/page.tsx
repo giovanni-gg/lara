@@ -5,6 +5,7 @@ import { getActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { loadDeckTree } from "@/lib/deck-tree";
 import { DeckTree } from "@/components/deck-tree";
+import { NewDeckJobRows } from "@/components/card-jobs";
 import { unarchiveDeck } from "@/app/actions";
 import { ButtonLink, EmptyState, PageHeader, Panel, Screen, Stat } from "@/components/ui";
 import { profileStats, sessionSize } from "@/lib/study";
@@ -18,7 +19,9 @@ export default async function DecksPage() {
   const stats = await profileStats(active.id);
   const toStudy = sessionSize(stats);
   const language = getLanguage(active.targetLanguage);
-  const { roots, archivedRoots } = await loadDeckTree(active.id);
+  const { roots, archivedRoots, byId } = await loadDeckTree(active.id);
+  // A deck being made by AI stays a placeholder row until it's one of these.
+  const knownDeckIds = [...byId.keys()];
   const count = (nodes: typeof roots): number =>
     nodes.reduce((n, node) => n + 1 + count(node.children), 0);
   const due = roots.reduce((n, r) => n + r.total.due, 0);
@@ -83,14 +86,20 @@ export default async function DecksPage() {
       </div>
 
       {roots.length === 0 ? (
-        <EmptyState
-          icon={<Layers className="size-8" aria-hidden />}
-          title="No decks yet"
-          body="Generate a deck from a prompt, or create an empty one and add cards yourself."
-          action={<ButtonLink href="/decks/new">New deck</ButtonLink>}
+        // The first deck being made shows instead of "No decks yet".
+        <NewDeckJobRows
+          knownDeckIds={knownDeckIds}
+          empty={
+            <EmptyState
+              icon={<Layers className="size-8" aria-hidden />}
+              title="No decks yet"
+              body="Generate a deck from a prompt, or create an empty one and add cards yourself."
+              action={<ButtonLink href="/decks/new">New deck</ButtonLink>}
+            />
+          }
         />
       ) : (
-        <DeckTree roots={roots} />
+        <DeckTree roots={roots} top={<NewDeckJobRows knownDeckIds={knownDeckIds} />} />
       )}
 
       {archivedRoots.length > 0 ? (

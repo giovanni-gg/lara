@@ -167,16 +167,9 @@ body {
   display: none;
 }
 
-/* The "making cards" status pill (card-jobs-pill.tsx): just above the bottom
-   nav, or tucked over the progress bar while studying, clear of the card and
-   the grade buttons. */
-.job-pills-above-nav {
-  bottom: calc(max(env(safe-area-inset-bottom), 0.5rem) + 4.5rem);
-}
-.job-pills-study {
-  top: calc(max(env(safe-area-inset-top), 0.5rem) + 0.875rem);
-}
-/* A soft light sweeping across a pill while its job runs. */
+/* AI cards being made (card-jobs.tsx): shown inline on the deck page and
+   the deck list, never as an overlay. */
+/* A soft light sweeping across a job's status while it runs. */
 .job-pill-running {
   background-image: linear-gradient(
     100deg,

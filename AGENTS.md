@@ -45,10 +45,13 @@ See `README.md` for what it is and how to run it.
 - **AI card generation is a `CardJob`, run in `after()`.** `POST
   /api/decks/generate` queues it (202, at most 3 in progress per user, stale
   after 10 min → FAILED) and `src/lib/card-jobs.ts` does the model call,
-  audio and pictures. A new deck is created only once the model names it. The
-  floating pill (`card-jobs-pill.tsx`, root layout) polls `/api/card-jobs`
-  every 2 s only while a job it has seen is in progress. Keep that endpoint
-  to one indexed query; don't add a count or a join.
+  audio and pictures. A new deck is created only once the model names it.
+  Progress shows inline in the decks section only (`card-jobs.tsx`, mounted
+  by `src/app/decks/layout.tsx`): on the deck page, under the deck's row in
+  the list, and as a placeholder row while a new deck has no id. No global
+  overlay, nothing on /study. It polls `/api/card-jobs` every 2 s only while
+  a job it has seen is in progress. Keep that endpoint to one indexed query;
+  don't add a count or a join.
 - **Story audio is per sentence; there's no whole-story clip.** The reader
   plays `ArticleSegment.audioUrl` clips back to back through `audio-cache`.
   A single clip of a medium or longer story would exceed `MAX_MEDIA_BYTES`

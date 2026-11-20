@@ -10,6 +10,7 @@ import { EMPTY_DECK_STATS } from "@/lib/study";
 import { imagesAvailable } from "@/lib/images";
 import { archiveDeck, moveDeck, unarchiveDeck, updateDeckNewCardsPerDay } from "@/app/actions";
 import { GenerateDeckForm } from "@/components/generate-deck-form";
+import { DeckJobStatus } from "@/components/card-jobs";
 import { CardRow } from "@/components/card-row";
 import { DeckTree } from "@/components/deck-tree";
 import { Button, ButtonLink, Panel, Screen, Stat } from "@/components/ui";
@@ -123,6 +124,9 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
         </div>
       </header>
 
+      {/* AI cards being added here: "Writing 5 cards…", then "5 new cards added". */}
+      <DeckJobStatus deckId={deck.id} className="mb-3" />
+
       {deck.archivedAt ? (
         <div className="mb-3 flex items-center gap-2 rounded-xl border border-line bg-raised px-3 py-2 text-sm">
           <Archive className="size-4 shrink-0 text-muted" aria-hidden />
@@ -178,6 +182,8 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
           defaultDirection={deck.direction}
           picturesAvailable={imagesAvailable()}
         />
+        {/* The same status again, next to the form it was started from. */}
+        <DeckJobStatus deckId={deck.id} onlyAnnounced className="mt-2" />
         <ButtonLink
           href={`/decks/${deck.id}/cards/new`}
           variant="secondary"
