@@ -108,6 +108,12 @@ See `README.md` for what it is and how to run it.
   path, description, cards across the subtree), so new cards fit it. The
   deck page's chips come from `/api/decks/[deckId]/suggestions`, cached on
   `Deck.suggestions` and rewritten once the subtree's card count moves by 5.
+- **"About you" reaches prompts only through `learnerContext(profile)`**
+  (`src/lib/learner-context.ts`): the distilled `LanguageProfile.aboutSummary`
+  (written in the learner's *source* language, since they read it), else the
+  raw `about` trimmed. In card requests it sits before the deck block, inside
+  the cached prefix. Dictation is ElevenLabs Scribe via `/api/transcribe`;
+  the audio is never stored, only a `Transcription` row for the daily cap.
 - **TTS is content-hash cached** in `.media/`. Re-synthesising identical text is
   free, so don't add your own caching layer around it.
 - **A card's facing is its own `cardType`, not the deck's.** RECOGNITION shows

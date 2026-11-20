@@ -5,6 +5,7 @@ import { subtreeIds } from "@/lib/deck-tree";
 import { loadDeckContext } from "@/lib/deck-context";
 import { hasAiCredentials } from "@/lib/ai/model";
 import { suggestForDeck, suggestionsAreStale } from "@/lib/ai/deck-suggestions";
+import { learnerContext } from "@/lib/learner-context";
 
 export const maxDuration = 60;
 
@@ -27,7 +28,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dec
       sourcePrompt: true,
       suggestions: true,
       suggestionsCardCount: true,
-      profile: { select: { targetLanguage: true, sourceLanguage: true, level: true } },
+      profile: {
+        select: { targetLanguage: true, sourceLanguage: true, level: true, about: true, aboutSummary: true },
+      },
     },
   });
   if (!deck) {
@@ -41,9 +44,15 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dec
   }
 
   try {
+    const { targetLanguage, sourceLanguage, level } = deck.profile;
     const suggestions = await suggestForDeck({
-      ...deck.profile,
+      targetLanguage,
+      sourceLanguage,
+      level,
       deck: await loadDeckContext(deck.profileId, deck),
+      // Chips written before the learner filled in "About you" stay until the
+      // deck's card count moves: not worth a model call per profile edit.
+      learner: learnerContext(deck.profile),
     });
     if (suggestions.length === 0) return NextResponse.json({ suggestions: deck.suggestions });
     // updateMany: the deck may have been deleted while the model was writing.

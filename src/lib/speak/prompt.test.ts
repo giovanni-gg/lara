@@ -196,3 +196,38 @@ describe("recentHistory", () => {
     expect(kept.map((t) => t.text)).toEqual([long, "latest"]);
   });
 });
+
+describe.each(LEARNERS)("the note about $name in the Speak prompt", (learner) => {
+  const base = {
+    learner: { targetLanguage: learner.targetLanguage, sourceLanguage: learner.sourceLanguage, level: "B1" as const },
+    topic: "Weekend plans",
+  };
+  const NOTE = "They run marathons and are moving abroad in May.";
+
+  it("adds a short section so the tutor can ask about their life in the target language", () => {
+    const text = tutorPrompt({ ...base, about: NOTE });
+    expect(text).toContain(`# About the learner\n${NOTE}\n`);
+    expect(text).toContain(`ask about their life and plans in ${learner.target}`);
+    expect(text).toContain("never assume anything it doesn't say");
+    // Language roles are untouched.
+    expect(text).toContain(`Speak ${learner.target} by default.`);
+    expect(text).toContain(`Explanations are always in ${learner.source}.`);
+    // Short: the note plus a heading and one line.
+    expect(text.length - tutorPrompt(base).length).toBeLessThan(NOTE.length + 300);
+  });
+
+  it("comes before the resumed history and passes through the overrides", () => {
+    const history = [{ role: "user" as const, text: "hej" }];
+    const text = tutorPrompt({ ...base, about: NOTE, history });
+    expect(text.indexOf("# About the learner")).toBeLessThan(text.indexOf("# The conversation so far"));
+    const overrides = speakOverrides({ ...base, about: NOTE, voiceId: null });
+    expect(overrides.agent.prompt.prompt).toContain(NOTE);
+  });
+
+  it("is left out without a note", () => {
+    for (const about of [undefined, null, "  "]) {
+      expect(tutorPrompt({ ...base, about })).toBe(tutorPrompt(base));
+      expect(tutorPrompt({ ...base, about })).not.toContain("About the learner");
+    }
+  });
+});

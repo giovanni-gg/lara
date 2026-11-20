@@ -30,6 +30,7 @@ model User {
   messages           CardChatMessage[]
   speakConversations SpeakConversation[]
   cardJobs           CardJob[]
+  transcriptions     Transcription[]
 }
 
 /// One per language a user is learning. Holds the level used to pitch
@@ -47,6 +48,15 @@ model LanguageProfile {
 
   // ElevenLabs voice for this language; falls back to the configured default
   voiceId String?
+
+  /// "About you": the learner's own words about their life and why they learn
+  /// this language (typed or dictated, capped at 4000 characters). Per
+  /// language, because the reasons differ.
+  about        String?
+  /// A short third-person note distilled from `about` by the model, in the
+  /// learner's source language. What card, story, chip and Speak prompts get
+  /// (src/lib/learner-context.ts); null when the distil call failed.
+  aboutSummary String?
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -426,4 +436,17 @@ model SpeakConversation {
   deck    Deck?           @relation(fields: [deckId], references: [id], onDelete: SetNull)
 
   @@index([profileId, createdAt])
+}
+
+/// One "About you" voice clip sent to speech-to-text. Only counted, for the
+/// daily cap on accounts other than the owner's (src/lib/limits.ts); the
+/// audio itself is never stored.
+model Transcription {
+  id        String   @id @default(cuid())
+  userId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }

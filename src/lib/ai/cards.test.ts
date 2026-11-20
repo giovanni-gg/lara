@@ -169,6 +169,57 @@ describe("buildCardRequest without a deck", () => {
   });
 });
 
+describe("buildCardRequest with a note about the learner", () => {
+  const NOTE = "They are moving to Stockholm in May and run marathons.";
+
+  it("puts the note before the deck, inside the cached prefix", () => {
+    const { call } = buildCardRequest({ ...base, prompt: "colours", deck: ADJECTIVES, learner: NOTE });
+    const [note, deck, ask] = parts(call.messages);
+    expect(note.text).toBe(`About the learner (from their profile):\n${NOTE}`);
+    // One breakpoint, on the last stable part: the note is cached with the deck.
+    expect(note.cached).toBe(false);
+    expect(deck.text).toContain('The deck: "Swedish::Adjectives"');
+    expect(deck.providerOptions).toEqual({ anthropic: { cacheControl: { type: "ephemeral" } } });
+    expect(ask.cached).toBe(false);
+    expect(ask.text).not.toContain("Stockholm");
+  });
+
+  it("tells the model to use it lightly, with the deck's theme first", () => {
+    const { call } = buildCardRequest({ ...base, deck: ADJECTIVES, learner: NOTE });
+    expect(call.instructions).toContain("especially the example sentences");
+    expect(call.instructions).toContain("not in every item");
+    expect(call.instructions).toContain("never the same personal fact over and over");
+    expect(call.instructions).toContain("Never invent facts about the learner");
+    expect(call.instructions).toContain("The deck's theme always comes first");
+    // The note itself is not in the system prompt.
+    expect(call.instructions).not.toContain("Stockholm");
+  });
+
+  it("for a new deck, keeps the request first and caches the note before the avoid list", () => {
+    const { call } = buildCardRequest({ ...base, prompt: "food", existingTargets: ["äpple"], learner: NOTE });
+    const [note, avoid, ask] = parts(call.messages);
+    expect(note.text).toContain(NOTE);
+    expect(avoid.text).toContain("äpple");
+    expect(avoid.cached).toBe(true);
+    expect(ask.text).toBe("Create exactly 5 flashcards for this request: food");
+    expect(call.instructions).toContain("The request always comes first");
+  });
+
+  it("caches the note on its own when it's the only stable part", () => {
+    const { call } = buildCardRequest({ ...base, prompt: "food", learner: NOTE });
+    expect(parts(call.messages).map((p) => p.cached)).toEqual([true, false]);
+  });
+
+  it("leaves no trace without a note", () => {
+    for (const learner of [undefined, null, "  "]) {
+      const { call } = buildCardRequest({ ...base, deck: ADJECTIVES, learner });
+      expect(call).toEqual(buildCardRequest({ ...base, deck: ADJECTIVES }).call);
+      expect(call.instructions).not.toContain("about the learner's life");
+      expect(parts(call.messages).map((p) => p.text).join("\n")).not.toContain("About the learner");
+    }
+  });
+});
+
 describe("the call itself", () => {
   it("is low effort through native structured output, with no sampling or thinking settings", () => {
     const { call } = buildCardRequest({ ...base, deck: ADJECTIVES });

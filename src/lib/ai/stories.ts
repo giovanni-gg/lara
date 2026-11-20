@@ -3,6 +3,7 @@ import { z } from "zod";
 import { assertAiCredentials, getModel } from "./model";
 import { anthropicOptions, loggedCall, MAX_RETRIES } from "./call";
 import { getLanguage, nextLevelUp } from "../languages";
+import { learnerContextRules, learnerNoteBlock } from "../learner-context";
 import type { VocabularyWord } from "../story-vocabulary";
 import type { CefrLevel } from "@/generated/prisma/enums";
 
@@ -112,6 +113,8 @@ export type GenerateStoryInput = {
     studied: VocabularyWord[];
     unstudied: VocabularyWord[];
   };
+  /** The note about the reader's life ("About you"), from `learnerContext`. */
+  learner?: string | null;
 };
 
 const listWords = (words: VocabularyWord[]) =>
@@ -125,9 +128,11 @@ export function storyPrompt({
   length,
   knownVocabulary = [],
   deck,
-}: Pick<GenerateStoryInput, "prompt" | "length" | "knownVocabulary" | "deck">): string {
+  learner,
+}: Pick<GenerateStoryInput, "prompt" | "length" | "knownVocabulary" | "deck" | "learner">): string {
   const spec = STORY_LENGTHS[length];
   const known = knownVocabulary.slice(0, 400);
+  const note = learner?.trim() || null;
   const lines = [`Write a story of about ${spec.words} words.`, `Shape: ${spec.shape}`, ""];
 
   if (prompt) {
@@ -137,6 +142,18 @@ export function storyPrompt({
       deck
         ? "The reader didn't ask for anything in particular. Pick a premise these words suit naturally — an everyday situation with a small problem in it works well."
         : "The reader didn't ask for anything in particular. Pick an everyday premise with a small problem in it.",
+    );
+  }
+
+  if (note) {
+    lines.push(
+      "",
+      learnerNoteBlock(note),
+      learnerContextRules("where the story is set and what its characters do"),
+      prompt
+        ? "Their request comes first: where it doesn't say otherwise, set the story in their world (their city, their kind of work, their interests or something coming up for them)."
+        : "Set the story in their world (their city, their kind of work, their interests or something coming up for them), so it feels close to home.",
+      "A character may share their situation, but don't tell the story as the reader's own life.",
     );
   }
 

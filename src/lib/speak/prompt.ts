@@ -52,6 +52,8 @@ export type SpeakPromptInput = {
   deck?: SpeakDeck;
   /** Set when resuming after a pause: what was said before it. */
   history?: SpeakTurn[];
+  /** The note about the learner's life ("About you"), from `learnerContext`. */
+  about?: string | null;
 };
 
 export type SpeakTurn = { role: "user" | "agent"; text: string };
@@ -75,7 +77,7 @@ export function recentHistory(history: SpeakTurn[]): SpeakTurn[] {
 /** Short enough to keep in a voice prompt; a conversation can't use more. */
 export const MAX_DECK_WORDS = 20;
 
-export function tutorPrompt({ learner, topic, deck, history }: SpeakPromptInput): string {
+export function tutorPrompt({ learner, topic, deck, history, about }: SpeakPromptInput): string {
   const resuming = Boolean(history && history.length > 0);
   const target = getLanguage(learner.targetLanguage).name;
   const source = getLanguage(learner.sourceLanguage).name;
@@ -133,6 +135,16 @@ export function tutorPrompt({ learner, topic, deck, history }: SpeakPromptInput)
       "# Words they are studying",
       `They are studying a deck called "${deck.label}". Weave these words into the conversation naturally, a few at a time, and ask questions that give them a reason to use them. Don't list them or quiz them.`,
       ...words.map((w) => (w.source ? `- ${w.target} (${w.source})` : `- ${w.target}`)),
+    );
+  }
+
+  const note = about?.trim();
+  if (note) {
+    lines.push(
+      "",
+      "# About the learner",
+      note,
+      `Now and then, ask about their life and plans in ${target}, where it fits the topic. Don't recite this, don't bring it all up at once, and never assume anything it doesn't say.`,
     );
   }
 

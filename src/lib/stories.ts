@@ -11,6 +11,7 @@ import { ArticleStatus, ContentKind, type CefrLevel } from "@/generated/prisma/e
 import { nextLevelUp } from "./languages";
 import { storiesLeftToday } from "./allowance";
 import { storyLimitMessage } from "./limits";
+import { learnerContext, type AboutFields } from "./learner-context";
 
 /**
  * Writing a story is a server-side job, so leaving the page can't lose it:
@@ -57,7 +58,7 @@ export type CreateStoryInput = {
     targetLanguage: string;
     sourceLanguage: string;
     level: CefrLevel;
-  };
+  } & AboutFields;
   prompt?: string;
   length: StoryLength;
   /** Build the story around this deck (and its subdecks). Omit for all cards. */
@@ -206,6 +207,7 @@ async function composeStory({ userId, profile, prompt, length, deckId }: CreateS
     length,
     knownVocabulary,
     deck,
+    learner: learnerContext(profile),
   });
 
   const segments = story.segments.filter((s) => s.target.trim());

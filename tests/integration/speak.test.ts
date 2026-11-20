@@ -126,6 +126,18 @@ describe("POST /api/speak/session", () => {
     expect(agent.prompt.prompt).toContain("Speak Portuguese at CEFR B1");
     expect(agent.prompt.prompt).toContain("Explanations are always in Swedish.");
     expect(agent.prompt.prompt).toContain("Never use English");
+    expect(agent.prompt.prompt).not.toContain("# About the learner");
+  });
+
+  it("tells the tutor what the learner shared in About you", async () => {
+    const { ebba } = await learners();
+    const note = "Hon ska flytta till Lissabon i maj och jobbar som sjuksköterska.";
+    await prisma.languageProfile.update({ where: { id: ebba.id }, data: { about: "raw", aboutSummary: note } });
+    await signIn("ebba@lara.local");
+
+    const body = (await (await post(startSession, "session", { topic: "Travel" })).json()) as SessionBody;
+    expect(body.overrides.agent.prompt.prompt).toContain(`# About the learner\n${note}`);
+    expect(body.overrides.agent.prompt.prompt).toContain("ask about their life and plans in Portuguese");
   });
 
   it("weaves in the deck's studied words, subdecks included, archived and suspended left out", async () => {
