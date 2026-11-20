@@ -1,6 +1,7 @@
 // "Picture first": AI deck generation and hand-written cards create PICTURE
-// cards at once, and their pictures are drawn in `after()` (run here by the
-// next/server stub; `settleAfter()` waits for it). The AI and the image model
+// cards first, and their pictures are drawn afterwards: in the card job's
+// PICTURES stage, or in `after()` for a hand-written card (both run here by
+// the next/server stub; `settleAfter()` waits for it). The AI and the image model
 // are mocked; what's real is the route, the action and the rows they write.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,10 @@ import { settleAfter } from "./stubs/next-server";
 
 vi.mock("@/lib/ai/cards", () => ({ generateCards: vi.fn() }));
 vi.mock("@/lib/images", () => ({ generateCardImage: vi.fn(), imagesAvailable: vi.fn() }));
+vi.mock("@/lib/ai/model", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/ai/model")>()),
+  hasAiCredentials: () => true,
+}));
 vi.mock("@/lib/tts", () => ({ ttsAvailable: () => false, trySynthesize: vi.fn(async () => null) }));
 
 const card = (target: string, source: string) => ({
@@ -29,10 +34,15 @@ const card = (target: string, source: string) => ({
 /** The URL the fake image model hands back for a word. */
 const pictureOf = (target: string) => `/api/media/img-${encodeURIComponent(target)}.webp`;
 
-function generate(body: Record<string, unknown>) {
-  return POST(
+/** Queues a card job, runs it, and returns the finished job row. */
+async function generate(body: Record<string, unknown>) {
+  const res = await POST(
     new Request("http://t/api/decks/generate", { method: "POST", body: JSON.stringify(body) }),
   );
+  expect(res.status).toBe(202);
+  const { id } = await res.json();
+  await settleAfter();
+  return prisma.cardJob.findUniqueOrThrow({ where: { id } });
 }
 
 function form(fields: Record<string, string>): FormData {
@@ -56,29 +66,32 @@ afterEach(() => {
 });
 
 describe("POST /api/decks/generate with Picture first", () => {
-  it("creates PICTURE cards at once, then gives each its picture", async () => {
+  it("creates PICTURE cards first, then gives each its picture", async () => {
     const user = await createUser();
     await createProfile(user);
+    // What the job looked like while the pictures were being drawn.
+    const during: { status: string; total: number; blank: number }[] = [];
+    vi.mocked(generateCardImage).mockImplementation(async ({ target }) => {
+      const job = await prisma.cardJob.findFirstOrThrow();
+      const blank = await prisma.card.count({ where: { cardType: CardType.PICTURE, imageUrl: null } });
+      during.push({ status: job.status, total: job.total, blank });
+      return pictureOf(target);
+    });
 
-    const res = await generate({ prompt: "fruit", count: 4, direction: "PICTURE" });
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toMatchObject({ created: 4, pictures: "drawing" });
+    const job = await generate({ prompt: "fruit", count: 4, direction: "PICTURE" });
+    expect(job).toMatchObject({ status: "DONE", created: 4, done: 4, total: 4 });
 
-    // The response is back: the cards exist and are picture cards, still blank.
-    const deck = await prisma.deck.findUniqueOrThrow({ where: { id: data.deck.id } });
+    // All four cards existed, still blank, when the first picture was asked for.
+    expect(during[0]).toEqual({ status: "PICTURES", total: 4, blank: 4 });
+    expect(generateCardImage).toHaveBeenCalledTimes(4);
+
+    const deck = await prisma.deck.findUniqueOrThrow({ where: { id: job.deckId! } });
     expect(deck.direction).toBe("PICTURE");
-    const before = await prisma.card.findMany({ where: { deckId: deck.id } });
-    expect(before).toHaveLength(4);
-    for (const c of before) expect(c).toMatchObject({ cardType: CardType.PICTURE, imageUrl: null });
-
-    await settleAfter();
-
-    const after = await prisma.card.findMany({ where: { deckId: deck.id }, orderBy: { target: "asc" } });
-    expect(after.map((c) => [c.target, c.imageUrl])).toEqual(
+    const cards = await prisma.card.findMany({ where: { deckId: deck.id }, orderBy: { target: "asc" } });
+    for (const c of cards) expect(c.cardType).toBe(CardType.PICTURE);
+    expect(cards.map((c) => [c.target, c.imageUrl])).toEqual(
       ["banan", "plommon", "päron", "äpple"].sort().map((t) => [t, pictureOf(t)]),
     );
-    expect(generateCardImage).toHaveBeenCalledTimes(4);
   });
 
   it("leaves a card blank when its picture fails, and still draws the rest", async () => {
@@ -88,10 +101,10 @@ describe("POST /api/decks/generate with Picture first", () => {
       target === "banan" ? null : pictureOf(target),
     );
 
-    const data = await (await generate({ prompt: "fruit", count: 4, direction: "PICTURE" })).json();
-    await settleAfter();
+    const job = await generate({ prompt: "fruit", count: 4, direction: "PICTURE" });
+    expect(job.status).toBe("DONE");
 
-    const cards = await prisma.card.findMany({ where: { deckId: data.deck.id } });
+    const cards = await prisma.card.findMany({ where: { deckId: job.deckId! } });
     const byTarget = new Map(cards.map((c) => [c.target, c.imageUrl]));
     expect(byTarget.get("banan")).toBeNull();
     expect(byTarget.get("äpple")).toBe(pictureOf("äpple"));
@@ -101,12 +114,15 @@ describe("POST /api/decks/generate with Picture first", () => {
   it("skips a card deleted before its picture lands", async () => {
     const user = await createUser();
     await createProfile(user);
+    vi.mocked(generateCardImage).mockImplementation(async ({ target }) => {
+      if (target === "äpple") await prisma.card.deleteMany({ where: { target: "äpple" } });
+      return pictureOf(target);
+    });
 
-    const data = await (await generate({ prompt: "fruit", count: 4, direction: "PICTURE" })).json();
-    await prisma.card.deleteMany({ where: { deckId: data.deck.id, target: "äpple" } });
-    await settleAfter();
+    const job = await generate({ prompt: "fruit", count: 4, direction: "PICTURE" });
+    expect(job.status).toBe("DONE");
 
-    const cards = await prisma.card.findMany({ where: { deckId: data.deck.id } });
+    const cards = await prisma.card.findMany({ where: { deckId: job.deckId! } });
     expect(cards).toHaveLength(3);
     for (const c of cards) expect(c.imageUrl).toBe(pictureOf(c.target));
   });
@@ -116,11 +132,10 @@ describe("POST /api/decks/generate with Picture first", () => {
     await createProfile(user);
     vi.mocked(imagesAvailable).mockReturnValue(false);
 
-    const data = await (await generate({ prompt: "fruit", count: 4, direction: "PICTURE" })).json();
-    expect(data).toMatchObject({ created: 4, pictures: "unavailable" });
-    await settleAfter();
+    const job = await generate({ prompt: "fruit", count: 4, direction: "PICTURE" });
+    expect(job).toMatchObject({ status: "DONE", created: 4 });
 
-    const cards = await prisma.card.findMany({ where: { deckId: data.deck.id } });
+    const cards = await prisma.card.findMany({ where: { deckId: job.deckId! } });
     expect(cards).toHaveLength(4);
     for (const c of cards) expect(c).toMatchObject({ cardType: CardType.PICTURE, imageUrl: null });
     expect(generateCardImage).not.toHaveBeenCalled();
@@ -130,12 +145,11 @@ describe("POST /api/decks/generate with Picture first", () => {
     const user = await createUser();
     await createProfile(user);
 
-    const data = await (await generate({ prompt: "fruit", count: 4, direction: "RECOGNITION" })).json();
-    expect(data.pictures).toBeNull();
-    await settleAfter();
+    const job = await generate({ prompt: "fruit", count: 4, direction: "RECOGNITION" });
+    expect(job).toMatchObject({ status: "DONE", created: 4 });
 
     expect(generateCardImage).not.toHaveBeenCalled();
-    const cards = await prisma.card.findMany({ where: { deckId: data.deck.id } });
+    const cards = await prisma.card.findMany({ where: { deckId: job.deckId! } });
     for (const c of cards) expect(c).toMatchObject({ cardType: CardType.RECOGNITION, imageUrl: null });
   });
 
@@ -149,7 +163,6 @@ describe("POST /api/decks/generate with Picture first", () => {
     });
 
     await generate({ prompt: "frukt", count: 1, direction: "PICTURE" });
-    await settleAfter();
 
     expect(generateCardImage).toHaveBeenCalledWith({
       target: "maçã",

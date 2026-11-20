@@ -42,6 +42,13 @@ See `README.md` for what it is and how to run it.
   type. The reader, segments, audio and save-word all hang off `Article`. A
   story built from a deck records it in `Article.deckId` and draws on that
   deck's subtree (`subtreeIds`, archived subdecks excluded).
+- **AI card generation is a `CardJob`, run in `after()`.** `POST
+  /api/decks/generate` queues it (202, at most 3 in progress per user, stale
+  after 10 min → FAILED) and `src/lib/card-jobs.ts` does the model call,
+  audio and pictures. A new deck is created only once the model names it. The
+  floating pill (`card-jobs-pill.tsx`, root layout) polls `/api/card-jobs`
+  every 2 s only while a job it has seen is in progress. Keep that endpoint
+  to one indexed query; don't add a count or a join.
 - **Story audio is per sentence; there's no whole-story clip.** The reader
   plays `ArticleSegment.audioUrl` clips back to back through `audio-cache`.
   A single clip of a medium or longer story would exceed `MAX_MEDIA_BYTES`

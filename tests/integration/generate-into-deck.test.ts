@@ -1,15 +1,21 @@
 // Generating cards INTO an existing deck: the route loads the deck first and
 // hands the model its path, description and cards (subdecks included), so
-// "5 more" in Adjectives gives adjectives, not verbs. The AI is mocked; what's
-// real is the route and the rows it reads and writes.
+// "5 more" in Adjectives gives adjectives, not verbs. The route only queues a
+// job; the work runs in `after()` (`settleAfter()` here). The AI is mocked;
+// what's real is the route, the job runner and the rows they read and write.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import { POST } from "@/app/api/decks/generate/route";
 import { generateCards } from "@/lib/ai/cards";
 import { createCard, createCards, createDeck, createProfile, createUser } from "../factories";
+import { settleAfter } from "./stubs/next-server";
 
 vi.mock("@/lib/ai/cards", () => ({ generateCards: vi.fn() }));
+vi.mock("@/lib/ai/model", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/ai/model")>()),
+  hasAiCredentials: () => true,
+}));
 vi.mock("@/lib/tts", () => ({ ttsAvailable: () => false, trySynthesize: vi.fn(async () => null) }));
 
 const card = (target: string, source: string) => ({
@@ -25,6 +31,15 @@ function generate(body: Record<string, unknown>) {
   return POST(
     new Request("http://t/api/decks/generate", { method: "POST", body: JSON.stringify(body) }),
   );
+}
+
+/** Queues a job, runs it, and returns the finished job row. */
+async function generateAndRun(body: Record<string, unknown>) {
+  const res = await generate(body);
+  expect(res.status).toBe(202);
+  const { id } = await res.json();
+  await settleAfter();
+  return prisma.cardJob.findUniqueOrThrow({ where: { id } });
 }
 
 /** What the route passed to the model on its only call. */
@@ -63,8 +78,7 @@ describe("POST /api/decks/generate into an existing deck", () => {
   it("gives the model the deck's path, description and cards across its subtree", async () => {
     const { deck } = await adjectivesDeck();
 
-    const res = await generate({ prompt: "5 more", count: 5, deckId: deck.id });
-    expect(res.status).toBe(200);
+    await generateAndRun({ prompt: "5 more", count: 5, deckId: deck.id });
 
     const input = modelInput();
     expect(input.prompt).toBe("5 more");
@@ -80,10 +94,8 @@ describe("POST /api/decks/generate into an existing deck", () => {
   it("works with no prompt at all, and skips a repeat of a deck card", async () => {
     const { deck } = await adjectivesDeck();
 
-    const res = await generate({ count: 5, deckId: deck.id });
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toMatchObject({ deck: { id: deck.id, name: "Adjectives" }, created: 2, skipped: 1 });
+    const job = await generateAndRun({ count: 5, deckId: deck.id });
+    expect(job).toMatchObject({ status: "DONE", deckId: deck.id, deckName: "Adjectives", created: 2 });
     expect(modelInput().prompt).toBe("");
 
     const targets = (await prisma.card.findMany({ where: { deckId: deck.id } })).map((c) => c.target);
@@ -96,8 +108,8 @@ describe("POST /api/decks/generate into an existing deck", () => {
     // Newer than the deck's cards, enough to fill the profile-wide window.
     await createCards(verbs, 300, (i) => ({ target: `verb ${i}`, createdAt: new Date(Date.now() + 1000 + i) }));
 
-    const data = await (await generate({ count: 3, deckId: deck.id })).json();
-    expect(data).toMatchObject({ created: 2, skipped: 1 });
+    const job = await generateAndRun({ count: 3, deckId: deck.id });
+    expect(job).toMatchObject({ status: "DONE", created: 2 });
     expect(modelInput().deck?.cards.map((c) => c.target)).toContain("stor");
   });
 
@@ -108,6 +120,7 @@ describe("POST /api/decks/generate into an existing deck", () => {
 
     const res = await generate({ count: 5, deckId: elsewhere.id });
     expect(res.status).toBe(404);
+    await settleAfter();
     expect(generateCards).not.toHaveBeenCalled();
   });
 
@@ -122,8 +135,7 @@ describe("POST /api/decks/generate into an existing deck", () => {
   it("makes a new deck without deck context", async () => {
     await adjectivesDeck();
 
-    const res = await generate({ prompt: "feelings", count: 3 });
-    expect(res.status).toBe(200);
+    await generateAndRun({ prompt: "feelings", count: 3 });
     expect(modelInput().deck).toBeUndefined();
     expect(modelInput().existingTargets).toEqual(expect.arrayContaining(["stor", "liten", "röd"]));
   });

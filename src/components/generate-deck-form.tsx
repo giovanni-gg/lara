@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Wand2 } from "lucide-react";
 import { Button, inputStyles } from "@/components/ui";
 import { DirectionPicker, pickerDirection, type Direction } from "@/components/direction-picker";
+import { announceCardJob, onCardJobFinished } from "@/components/card-jobs-pill";
 import type { CardDirection } from "@/generated/prisma/enums";
 
 /** Topics for a brand-new deck. Inside a deck the chips come from the deck itself. */
@@ -19,6 +20,9 @@ const SUGGESTIONS = [
 /**
  * Prompt-to-deck. This is the whole point of moving off the desktop script:
  * describe what you want, get cards with audio, study immediately.
+ *
+ * Never blocks: the route queues a job and answers at once, the cards are made
+ * server-side, and the floating status pill (card-jobs-pill.tsx) follows it.
  */
 export function GenerateDeckForm({
   deckId,
@@ -44,7 +48,6 @@ export function GenerateDeckForm({
   const [direction, setDirection] = useState<Direction>(pickerDirection(defaultDirection));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
   // In an existing deck the deck says what to make; the prompt only refines it.
   const ready = deckId ? true : prompt.trim().length >= 3;
 
@@ -65,13 +68,20 @@ export function GenerateDeckForm({
     return () => controller.abort();
   }, [deckId, chipsVersion]);
 
+  // The deck grew: its chips may be rewritten for what it now covers.
+  useEffect(() => {
+    if (!deckId) return;
+    return onCardJobFinished((finished) => {
+      if (finished === deckId) setChipsVersion((v) => v + 1);
+    });
+  }, [deckId]);
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!ready || busy) return;
 
     setBusy(true);
     setError(null);
-    setResult(null);
 
     try {
       const response = await fetch("/api/decks/generate", {
@@ -86,22 +96,11 @@ export function GenerateDeckForm({
         return;
       }
 
-      setResult(
-        `Added ${data.created} card${data.created === 1 ? "" : "s"} to ${data.deck.name}` +
-          (data.skipped > 0 ? ` (${data.skipped} duplicate skipped)` : "") +
-          (data.audio ? "" : " — no audio, ELEVENLABS_API_KEY is unset") +
-          (data.pictures === "drawing" ? ". Pictures are being drawn and appear in a minute or two." : "") +
-          (data.pictures === "unavailable" ? " — no pictures, GEMINI_API_KEY is unset" : ""),
-      );
+      // Queued: the pill takes it from here, on whichever screen comes next.
+      announceCardJob(data.job);
       setPrompt("");
-      // A brand-new deck: open it. Adding to an existing deck: stay and refresh.
-      if (!deckId) {
-        router.push(`/decks/${data.deck.id}`);
-        return;
-      }
-      router.refresh();
-      // The deck grew: its chips may be rewritten for what it now covers.
-      setChipsVersion((v) => v + 1);
+      // A brand-new deck appears in the list once the model has named it.
+      if (!deckId) router.push("/decks");
     } catch {
       setError("Could not reach the server");
     } finally {
@@ -173,7 +172,7 @@ export function GenerateDeckForm({
           {busy ? (
             <>
               <Loader2 className="size-4 animate-spin" aria-hidden />
-              Writing…
+              Starting…
             </>
           ) : (
             <>
@@ -184,13 +183,7 @@ export function GenerateDeckForm({
         </Button>
       </div>
 
-      {busy ? (
-        <p className="mt-2 text-xs text-muted">
-          Writing cards and recording audio — this takes a few seconds per card.
-        </p>
-      ) : null}
       {error ? <p className="mt-2 text-sm text-again">{error}</p> : null}
-      {result ? <p className="mt-2 text-sm text-good">{result}</p> : null}
     </form>
   );
 }

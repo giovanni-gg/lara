@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 import { BottomNav } from "@/components/bottom-nav";
+import { CardJobsPill } from "@/components/card-jobs-pill";
 
 const sans = Inter({
   variable: "--font-sans-stack",
@@ -52,6 +53,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {/* Bottom nav is fixed, so reserve room for it. */}
         <main className="flex-1 pb-28">{children}</main>
         <BottomNav />
+        {/* AI cards being made in the background, on every screen. */}
+        <CardJobsPill />
       </body>
     </html>
   );
