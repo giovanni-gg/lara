@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useId, useSyncExternalStore } from "react";
-import { Pause, Volume2 } from "lucide-react";
-import { noOwner, play, playingOwner, stop, subscribe } from "@/lib/audio-cache";
+import { Loader2, Pause, Volume2 } from "lucide-react";
+import { currentClip, noClip, play, stop, subscribe } from "@/lib/audio-cache";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,6 +12,10 @@ import { cn } from "@/lib/utils";
  * Playback goes through `@/lib/audio-cache`: a clip someone prefetched starts
  * instantly from its decoded buffer, anything else streams as before. One clip
  * plays at a time app-wide.
+ *
+ * A tap stops a clip that is audible; on one still loading it starts over, so
+ * a stalled stream is retried rather than cancelled. `play()` runs inside the
+ * click handler itself: iOS only lets <audio> start within the gesture.
  */
 export function AudioButton({
   src,
@@ -27,7 +31,10 @@ export function AudioButton({
   className?: string;
 }) {
   const owner = useId();
-  const playing = useSyncExternalStore(subscribe, playingOwner, noOwner) === owner;
+  const clip = useSyncExternalStore(subscribe, currentClip, noClip);
+  const mine = clip?.owner === owner;
+  const playing = mine && clip.phase === "playing";
+  const loading = mine && clip.phase === "loading";
 
   // Only ever starts a clip: flipping autoPlay off (a recognition card being
   // revealed) leaves the prompt audio running rather than cutting it off.
@@ -69,6 +76,8 @@ export function AudioButton({
     >
       {playing ? (
         <Pause className={iconSize} aria-hidden />
+      ) : loading ? (
+        <Loader2 className={cn(iconSize, "animate-spin")} aria-hidden />
       ) : (
         <Volume2 className={iconSize} aria-hidden />
       )}

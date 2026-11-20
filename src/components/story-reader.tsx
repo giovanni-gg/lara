@@ -13,7 +13,15 @@ import {
 } from "lucide-react";
 import { deleteArticle, markArticleRead, saveWordFromArticle } from "@/app/actions";
 import { AudioButton } from "@/components/audio-button";
-import { prefetch, play, playingOwner, stop, subscribe, unlock } from "@/lib/audio-cache";
+import {
+  currentClip,
+  prefetch,
+  play,
+  playingOwner,
+  stop,
+  subscribe,
+  unlock,
+} from "@/lib/audio-cache";
 import { Badge, Button } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import type { CefrLevel } from "@/generated/prisma/enums";
@@ -287,7 +295,10 @@ type PlayerStatus = "idle" | "loading" | "playing" | "paused";
 
 type StoryPlayer = ReturnType<typeof useStoryPlayer>;
 
-/** Clips that "end" this soon after starting were refused (iOS autoplay), not heard. */
+/**
+ * Clips that "end" this soon after starting were refused (iOS autoplay), not
+ * heard. So were clips that never got past loading (a stream that failed).
+ */
 const REFUSED_MS = 250;
 /** Sentences fetched and decoded ahead of the one playing, for gapless hand-offs. */
 const LOOKAHEAD = 3;
@@ -323,6 +334,7 @@ function useStoryPlayer(segments: Segment[], onFinished?: () => void) {
     index: -1,
     run: 0,
     startedAt: 0,
+    heard: false,
   });
   const finished = useRef(onFinished);
   useEffect(() => {
@@ -387,6 +399,7 @@ function useStoryPlayer(segments: Segment[], onFinished?: () => void) {
       const go = (url: string) => {
         if (live.current.run !== run) return;
         live.current.startedAt = performance.now();
+        live.current.heard = false;
         live.current.status = "playing";
         play(url, owner);
         settle("playing", { index, error: null });
@@ -416,9 +429,12 @@ function useStoryPlayer(segments: Segment[], onFinished?: () => void) {
   // someone else's clip starting pauses it.
   useEffect(() => {
     return subscribe(() => {
-      const { status, mode, index, startedAt } = live.current;
       const now = playingOwner();
-      if (now === owner) return;
+      if (now === owner) {
+        if (currentClip()?.phase === "playing") live.current.heard = true;
+        return;
+      }
+      const { status, mode, index, startedAt, heard } = live.current;
 
       if (status === "loading" && now !== null) {
         live.current.run += 1;
@@ -433,7 +449,7 @@ function useStoryPlayer(segments: Segment[], onFinished?: () => void) {
       }
 
       // Our clip ended.
-      if (performance.now() - startedAt < REFUSED_MS) {
+      if (!heard || performance.now() - startedAt < REFUSED_MS) {
         settle("paused");
       } else if (mode === "sentence") {
         settle("idle");
