@@ -110,7 +110,8 @@ export async function isValidSession(cookieValue: string | undefined): Promise<b
  */
 export async function accountForPassword(attempt: string): Promise<Account | null> {
   const gate = gateState();
-  if (gate.mode !== "locked") return null;
+  // Web Crypto refuses a zero-length HMAC key, and no account has an empty password.
+  if (gate.mode !== "locked" || !attempt) return null;
   let match: Account | null = null;
   for (const account of gate.accounts) {
     const [given, expected] = await Promise.all([
