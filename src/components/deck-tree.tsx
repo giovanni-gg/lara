@@ -1,4 +1,6 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
+import { DeckRowJobs } from "@/components/card-jobs";
 import type { DeckNode } from "@/lib/deck-tree";
 import type { DeckStats } from "@/lib/study";
 import { cn } from "@/lib/utils";
@@ -10,12 +12,18 @@ import { cn } from "@/lib/utils";
  *
  * Groups use native <details>, so toggling needs no client JS. A group starts
  * expanded when something inside it is due.
+ *
+ * A deck that AI cards are being added to shows their progress under its
+ * name (DeckRowJobs, a client island; nothing outside the decks section).
  */
 export function DeckTree({
   roots,
   openFolders = "due",
+  top,
 }: {
   roots: DeckNode[];
+  /** Rows above the decks: the deck list's placeholders for decks being made. */
+  top?: ReactNode;
   /** "due": expand groups with due cards. "none": start collapsed. */
   openFolders?: "due" | "none";
 }) {
@@ -26,6 +34,7 @@ export function DeckTree({
         <ColumnLabels />
       </div>
       <ul className="pt-0.5">
+        {top}
         {roots.map((node) => (
           <DeckTreeItem
             key={node.id}
@@ -49,6 +58,8 @@ function DeckTreeItem({
   openFolders: "due" | "none";
 }) {
   const indent = { paddingLeft: `${depth * 16}px` };
+  // Lines a job's status up with the name: the row's padding, depth, toggle.
+  const jobIndent = 8 + depth * 16 + 24;
 
   if (node.children.length === 0) {
     return (
@@ -60,6 +71,7 @@ function DeckTreeItem({
           </span>
           <Counts stats={node.total} />
         </Link>
+        <DeckRowJobs deckId={node.id} indent={jobIndent} />
       </li>
     );
   }
@@ -67,21 +79,25 @@ function DeckTreeItem({
   return (
     <li>
       <details open={openFolders === "due" && node.total.due > 0} className="deck-group">
-        <summary className={cn(ROW, "cursor-pointer list-none")}>
-          <span className="flex min-w-0 flex-1 items-center" style={indent}>
-            <span
-              className="w-6 shrink-0 text-center font-mono text-base leading-none text-muted"
-              aria-hidden
-            >
-              <span className="deck-closed">+</span>
-              <span className="deck-open">−</span>
+        <summary className="cursor-pointer list-none">
+          <span className={ROW}>
+            <span className="flex min-w-0 flex-1 items-center" style={indent}>
+              <span
+                className="w-6 shrink-0 text-center font-mono text-base leading-none text-muted"
+                aria-hidden
+              >
+                <span className="deck-closed">+</span>
+                <span className="deck-open">−</span>
+              </span>
+              {/* The name opens the deck; the rest of the row expands/collapses. */}
+              <Link href={`/decks/${node.id}`} className="truncate">
+                {node.name}
+              </Link>
             </span>
-            {/* The name opens the deck; the rest of the row expands/collapses. */}
-            <Link href={`/decks/${node.id}`} className="truncate">
-              {node.name}
-            </Link>
+            <Counts stats={node.total} />
           </span>
-          <Counts stats={node.total} />
+          {/* Inside the summary, so it shows while the group is collapsed. */}
+          <DeckRowJobs deckId={node.id} indent={jobIndent} />
         </summary>
         <ul>
           {node.children.map((child) => (
