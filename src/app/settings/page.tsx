@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { activateProfile, updateProfileSettings } from "@/app/actions";
 import { signOut } from "@/app/login/actions";
@@ -38,6 +39,16 @@ export default async function SettingsPage() {
       />
 
       <ProgressSection progress={progress} />
+
+      <Link
+        href="/how-it-works"
+        className="mb-5 flex items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 text-sm font-medium"
+      >
+        <span>How Lara works</span>
+        <span className="text-muted" aria-hidden>
+          ›
+        </span>
+      </Link>
 
       {profiles.length > 1 ? (
         <section className="mb-5">
