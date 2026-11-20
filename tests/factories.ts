@@ -83,6 +83,24 @@ export function createDeck(
   });
 }
 
+/** An AI card job (src/lib/card-jobs.ts), WRITING 5 cards into a new deck unless overridden. */
+export function createCardJob(
+  profile: Pick<LanguageProfile, "id" | "userId">,
+  overrides: Partial<Omit<Prisma.CardJobUncheckedCreateInput, "userId" | "profileId">> = {},
+) {
+  return prisma.cardJob.create({
+    data: {
+      userId: profile.userId,
+      profileId: profile.id,
+      prompt: `topic ${nextSeq()}`,
+      count: 5,
+      total: 5,
+      status: "WRITING",
+      ...overrides,
+    },
+  });
+}
+
 export type CardOverrides = Partial<Omit<Prisma.CardUncheckedCreateInput, "userId" | "deckId">>;
 
 /** A card in a deck: NEW, due now, RECOGNITION, unless overridden. */

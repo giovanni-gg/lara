@@ -94,6 +94,7 @@ const card = await createCard(deck);                     // NEW, RECOGNITION
 await createCard(deck, { ...dueReview(now), cardType: "PRODUCTION" });
 await createCards(deck, 30, (i) => ({ target: `ord ${i}` })); // createdAt in index order
 await createReview(card, { reviewedAt: now, rating: 1 }); // a log row only
+await createCardJob(profile, { status: "AUDIO" });          // an AI card job (WRITING by default)
 ```
 
 - Scheduling presets to spread into `createCard`: `dueReview(now, overdueDays)`,
