@@ -14,7 +14,18 @@ function createClient() {
       "DATABASE_URL is not set. Run `npm run db:dev` and copy the printed URL into .env",
     );
   }
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  return new PrismaClient({
+    adapter: new PrismaPg({ connectionString: explicitSslMode(connectionString) }),
+  });
+}
+
+/**
+ * Neon's URL says `sslmode=require`, which `pg` already treats as
+ * `verify-full` but warns about on every cold start. Saying `verify-full`
+ * keeps the same (strict) behaviour without the noise in the error logs.
+ */
+export function explicitSslMode(url: string): string {
+  return url.replace(/([?&]sslmode=)(prefer|require|verify-ca)(?=&|$)/, "$1verify-full");
 }
 
 // Reuse the client across hot reloads in dev, and across warm Fluid Compute
