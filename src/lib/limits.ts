@@ -11,6 +11,8 @@ import type { CardDirection, CardJobStatus } from "@/generated/prisma/enums";
 export const DAILY_CARD_LIMIT = 100;
 /** Stories per study day, failed ones included: each cost a model call. */
 export const DAILY_STORY_LIMIT = 5;
+/** "About you" voice clips sent to speech-to-text per study day, failed ones included. */
+export const DAILY_TRANSCRIPTION_LIMIT = 20;
 
 /**
  * The one account with no caps: LARA_OWNER_EMAIL, else the default account
@@ -69,4 +71,9 @@ export function cardLimitMessage(left: number, perWord = 1): string {
 /** Why a story was refused. */
 export function storyLimitMessage(): string {
   return `Daily limit reached: you can write ${DAILY_STORY_LIMIT} stories a day. ${RESET}`;
+}
+
+/** Why a voice clip wasn't transcribed. Typing still works. */
+export function transcriptionLimitMessage(): string {
+  return `Daily limit reached: you can dictate ${DAILY_TRANSCRIPTION_LIMIT} recordings a day. ${RESET} You can still type.`;
 }

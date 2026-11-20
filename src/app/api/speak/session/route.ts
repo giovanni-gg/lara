@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireActiveProfile } from "@/lib/session";
 import { voiceForLanguage } from "@/lib/tts";
 import { speakOverrides, speakSupports } from "@/lib/speak/prompt";
+import { learnerContext } from "@/lib/learner-context";
 import {
   loadSpeakDeck,
   mintConversationToken,
@@ -92,6 +93,7 @@ export async function POST(request: Request) {
       topic,
       deck,
       history: parsed.data.history,
+      about: learnerContext(profile),
       voiceId: voiceForLanguage(profile.targetLanguage, profile.voiceId),
     }),
   });

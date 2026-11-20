@@ -1,6 +1,13 @@
 import { prisma } from "./db";
 import { startOfStudyDay } from "./srs";
-import { cardsUsedBy, DAILY_CARD_LIMIT, DAILY_STORY_LIMIT, isUnlimited, remaining } from "./limits";
+import {
+  cardsUsedBy,
+  DAILY_CARD_LIMIT,
+  DAILY_STORY_LIMIT,
+  DAILY_TRANSCRIPTION_LIMIT,
+  isUnlimited,
+  remaining,
+} from "./limits";
 
 // What a limited account has left today (study days start at 04:00); null for
 // the owner, who has no caps. The rules are in `limits.ts`. Each is one query
@@ -40,4 +47,13 @@ export async function storiesLeftToday(user: Account, now: Date = new Date()): P
     where: { userId: user.id, createdAt: { gte: startOfStudyDay(now) } },
   });
   return remaining(DAILY_STORY_LIMIT, started);
+}
+
+/** "About you" recordings left today. Every one sent counts, failed ones too. */
+export async function transcriptionsLeftToday(user: Account, now: Date = new Date()): Promise<number | null> {
+  if (isUnlimited(user.email)) return null;
+  const sent = await prisma.transcription.count({
+    where: { userId: user.id, createdAt: { gte: startOfStudyDay(now) } },
+  });
+  return remaining(DAILY_TRANSCRIPTION_LIMIT, sent);
 }

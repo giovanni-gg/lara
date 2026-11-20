@@ -2,6 +2,7 @@ import { prisma } from "./db";
 import { generateCards } from "./ai/cards";
 import { MissingAiCredentialsError } from "./ai/model";
 import { loadDeckContext } from "./deck-context";
+import { learnerContext, type AboutFields } from "./learner-context";
 import { newCardState } from "./srs";
 import { trySynthesize, ttsAvailable } from "./tts";
 import { cardTypesFor } from "./card-direction";
@@ -52,7 +53,7 @@ export type CardJobInput = {
     sourceLanguage: string;
     level: CefrLevel;
     voiceId: string | null;
-  };
+  } & AboutFields;
   /** Required for a new deck; adding to a deck it only refines, and may be empty. */
   prompt: string;
   count: number;
@@ -212,6 +213,7 @@ async function makeCards(jobId: string, input: CardJobInput, started: number) {
     count,
     existingTargets: others.map((c) => c.target),
     deck: deckContext,
+    learner: learnerContext(profile),
   });
 
   // A new deck is made only now that the model has named it: a failed job

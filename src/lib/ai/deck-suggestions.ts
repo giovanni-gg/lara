@@ -4,6 +4,7 @@ import { assertAiCredentials, getModel } from "./model";
 import { anthropicOptions, loggedCall, MAX_RETRIES } from "./call";
 import { describeDeck, type DeckContext } from "./cards";
 import { getLanguage } from "../languages";
+import { learnerNoteBlock } from "../learner-context";
 import type { CefrLevel } from "@/generated/prisma/enums";
 
 /**
@@ -30,6 +31,8 @@ export type SuggestDeckInput = {
   sourceLanguage: string;
   level: CefrLevel;
   deck: DeckContext;
+  /** The note about the learner's life ("About you"), from `learnerContext`. */
+  learner?: string | null;
 };
 
 /**
@@ -37,9 +40,10 @@ export type SuggestDeckInput = {
  * instructions, then the deck (the same compact form card generation uses),
  * then the ask.
  */
-export function buildSuggestionRequest({ targetLanguage, sourceLanguage, level, deck }: SuggestDeckInput) {
+export function buildSuggestionRequest({ targetLanguage, sourceLanguage, level, deck, learner }: SuggestDeckInput) {
   const target = getLanguage(targetLanguage).name;
   const source = getLanguage(sourceLanguage).name;
+  const note = learner?.trim() || null;
 
   const instructions = [
     `You help someone learning ${target} who speaks ${source} grow a ${target} flashcard deck. Their level is CEFR ${level}.`,
@@ -47,6 +51,11 @@ export function buildSuggestionRequest({ targetLanguage, sourceLanguage, level, 
     "Each must fit the deck's theme and word class exactly (in a deck of adjectives, kinds of adjectives) and point at something the deck doesn't cover yet. Make them different from each other.",
     `Write the suggestions in ${source}, the learner's own language: 1-4 words each, lowercase, no numbering or punctuation.`,
     "Leave out the word class the deck already implies: in a deck of adjectives say \"colours\", not \"colour adjectives\".",
+    ...(note
+      ? [
+          "You also get a short note about the learner's life. One or two suggestions may tie the deck's theme to it (in a deck of verbs, \"training\" for a marathon runner) when that fits naturally; the rest stay general. The deck's theme still comes first, and never invent facts about the learner.",
+        ]
+      : []),
   ].join(" ");
 
   // No prompt-cache breakpoint here: the chips are cached on the deck, so the
@@ -56,6 +65,7 @@ export function buildSuggestionRequest({ targetLanguage, sourceLanguage, level, 
     {
       role: "user",
       content: [
+        ...(note ? [{ type: "text" as const, text: learnerNoteBlock(note) }] : []),
         { type: "text", text: describeDeck({ ...deck, cards: deck.cards.slice(0, CARDS_SHOWN) }) },
         { type: "text", text: `Suggest ${SUGGESTION_COUNT} requests for the next cards in this deck.` },
       ],

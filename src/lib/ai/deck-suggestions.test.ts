@@ -67,6 +67,22 @@ describe("buildSuggestionRequest", () => {
     expect(call.maxRetries).toBe(2);
   });
 
+  it("shows a note about the learner before the deck, when there is one", () => {
+    const input = { targetLanguage: "sv", sourceLanguage: "en", level: "A2" as const, deck: ADJECTIVES };
+    const call = buildSuggestionRequest({ ...input, learner: "They run marathons." });
+    const [note, deck] = partsOf(call.messages);
+    expect(note.text).toBe("About the learner (from their profile):\nThey run marathons.");
+    expect(note.providerOptions).toBeUndefined();
+    expect(deck.text).toContain('The deck: "Swedish::Adjectives"');
+    expect(call.instructions).toContain("One or two suggestions may tie the deck's theme to it");
+    expect(call.instructions).toContain("never invent facts about the learner");
+
+    const without = buildSuggestionRequest({ ...input, learner: null });
+    expect(without).toEqual(buildSuggestionRequest(input));
+    expect(partsOf(without.messages)).toHaveLength(2);
+    expect(without.instructions).not.toContain("note about the learner");
+  });
+
   it("goes by the name when the deck is empty", () => {
     const call = buildSuggestionRequest({
       targetLanguage: "sv",

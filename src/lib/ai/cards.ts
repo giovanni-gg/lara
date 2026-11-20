@@ -3,6 +3,7 @@ import { z } from "zod";
 import { assertAiCredentials, getModel } from "./model";
 import { anthropicOptions, CACHE_BREAKPOINT, loggedCall, MAX_RETRIES } from "./call";
 import { getLanguage } from "../languages";
+import { learnerContextRules, learnerNoteBlock } from "../learner-context";
 import type { CefrLevel } from "@/generated/prisma/enums";
 
 const generatedCard = z.object({
@@ -68,6 +69,8 @@ export type GenerateCardsInput = {
   existingTargets?: string[];
   /** Set when adding to an existing deck. */
   deck?: DeckContext;
+  /** The note about the learner's life ("About you"), from `learnerContext`. */
+  learner?: string | null;
 };
 
 /**
@@ -124,8 +127,10 @@ export function describeDeck(deck: DeckContext): string {
  * Everything one generation sends, without calling the model.
  *
  * Ordered stable → volatile for the prompt cache: the fixed instructions
- * (system), then the context (the deck; or, for a new deck, the learner's
- * words) marked as the cache breakpoint, then the ask. `avoid` is every word
+ * (system), then the note about the learner (it changes only when they edit
+ * "About you"), then the context (the deck; or, for a new deck, the learner's
+ * words), the last of these marked as the cache breakpoint, then the ask.
+ * `avoid` is every word
  * the model was told not to repeat: the deck's own first, then up to
  * OTHER_AVOID_LIMIT of the learner's others.
  */
@@ -137,9 +142,11 @@ export function buildCardRequest({
   count,
   existingTargets = [],
   deck,
+  learner,
 }: GenerateCardsInput) {
   const target = getLanguage(targetLanguage).name;
   const source = getLanguage(sourceLanguage).name;
+  const note = learner?.trim() || null;
 
   const deckTargets = uniqueCaseless(deck?.cards.map((c) => c.target) ?? []);
   const inDeck = new Set(deckTargets.map((t) => t.toLowerCase()));
@@ -165,6 +172,14 @@ export function buildCardRequest({
           "Never repeat a card the deck already has, nor a near-duplicate of one (another inflection of the same word, or the same meaning reworded). Reuse the deck's tags where they fit.",
         ]
       : []),
+    ...(note
+      ? [
+          learnerContextRules("the choice of words and especially the example sentences"),
+          deck
+            ? "The deck's theme always comes first: never add a word that doesn't belong in the deck just because it fits the learner's life."
+            : "The request always comes first: never add a word outside it just because it fits the learner's life.",
+        ]
+      : []),
   ].join(" ");
 
   const request = prompt.trim();
@@ -183,11 +198,17 @@ export function buildCardRequest({
     ask.push(`Create exactly ${count} flashcards for this request: ${request}`);
   }
 
+  // The parts that stay the same between calls; the last carries the breakpoint.
+  const stable = [note ? learnerNoteBlock(note) : null, context].filter((text): text is string => Boolean(text));
   const messages: ModelMessage[] = [
     {
       role: "user",
       content: [
-        ...(context ? [{ type: "text" as const, text: context, providerOptions: CACHE_BREAKPOINT }] : []),
+        ...stable.map((text, index) => ({
+          type: "text" as const,
+          text,
+          ...(index === stable.length - 1 ? { providerOptions: CACHE_BREAKPOINT } : {}),
+        })),
         { type: "text" as const, text: ask.join("\n") },
       ],
     },

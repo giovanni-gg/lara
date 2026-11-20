@@ -12,6 +12,7 @@ import { CardType, CefrLevel } from "@/generated/prisma/enums";
 import { cardTypesFor, isCardDirection } from "@/lib/card-direction";
 import { subtreeIds } from "@/lib/deck-tree";
 import { generateCardImage, imagesAvailable } from "@/lib/images";
+import { clearAbout, saveAbout } from "@/lib/about";
 
 export async function createProfile(formData: FormData) {
   const user = await getCurrentUser();
@@ -80,6 +81,19 @@ export async function updateProfileSettings(formData: FormData) {
   });
 
   revalidatePath("/", "layout");
+}
+
+/** "About you": saves the learner's text and distils the note the prompts use. */
+export async function saveAboutYou(formData: FormData) {
+  const { profile } = await requireActiveProfile();
+  await saveAbout(profile, String(formData.get("about") ?? ""));
+  revalidatePath("/settings");
+}
+
+export async function clearAboutYou() {
+  const { profile } = await requireActiveProfile();
+  await clearAbout(profile.id);
+  revalidatePath("/settings");
 }
 
 export async function createDeck(formData: FormData) {

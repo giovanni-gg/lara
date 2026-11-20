@@ -14,6 +14,8 @@ import { ttsAvailable } from "@/lib/tts";
 import { SCHEDULER_SETTINGS } from "@/lib/srs";
 import { loadProgress } from "@/lib/progress";
 import { ProgressSection } from "@/components/progress-charts";
+import { AboutYou } from "@/components/about-you";
+import { learnerContext } from "@/lib/learner-context";
 import {
   Button,
   Field,
@@ -85,6 +87,18 @@ export default async function SettingsPage() {
           </ul>
         </section>
       ) : null}
+
+      <section className="mb-5">
+        <h2 className="mb-2 font-display text-base font-semibold">About you</h2>
+        {/* Per language: the key remounts it when the learner switches. */}
+        <AboutYou
+          key={active.id}
+          about={active.about}
+          known={learnerContext(active)}
+          summarised={Boolean(active.aboutSummary?.trim())}
+          language={language.name}
+        />
+      </section>
 
       <section className="mb-5">
         <h2 className="mb-2 font-display text-base font-semibold">Study</h2>
