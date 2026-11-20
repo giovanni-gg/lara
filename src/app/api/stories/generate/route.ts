@@ -52,13 +52,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const input = { userId: user.id, profile, prompt, length, deckId };
+  const input = { userId: user.id, email: user.email, profile, prompt, length, deckId };
   let id: string;
   try {
     id = await queueStory(input);
   } catch (error) {
     if (error instanceof StoryInputError) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     throw error;
   }

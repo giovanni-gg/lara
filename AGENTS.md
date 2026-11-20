@@ -77,6 +77,12 @@ See `README.md` for what it is and how to run it.
   returning `{ error }` from an `action={}` prop is a type error.
 - **Stories are generated at `nextLevelUp(profile.level)`, not at the profile's
   level.** That i+1 gap is the point of the feature, not a bug.
+- **Every account but the owner has daily AI caps** (100 cards, 5 stories per
+  study day). The rule and the numbers live only in `src/lib/limits.ts`
+  (`isUnlimited`: `LARA_OWNER_EMAIL`, else the default account); the counting
+  in `src/lib/allowance.ts`. Cards are counted from `CardJob` rows (a running
+  job holds its whole batch), never the Card table, so manual adds and Anki
+  imports don't count and deleting cards doesn't refund them.
 - **One shared password gates the whole app** (`src/proxy.ts` + `src/lib/auth.ts`,
   env `LARA_PASSWORD`). Public: `/login`, `/api/health`, `/_next/*`, favicon,
   manifest, root-level images. Unset locally → gate off; unset on Vercel → 503

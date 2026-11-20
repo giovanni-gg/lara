@@ -8,6 +8,7 @@ import { getLanguage } from "@/lib/languages";
 import { flattenWithPaths, loadDeckTree, type DeckNode } from "@/lib/deck-tree";
 import { EMPTY_DECK_STATS } from "@/lib/study";
 import { imagesAvailable } from "@/lib/images";
+import { cardsLeftToday } from "@/lib/allowance";
 import { archiveDeck, moveDeck, unarchiveDeck, updateDeckNewCardsPerDay } from "@/app/actions";
 import { GenerateDeckForm } from "@/components/generate-deck-form";
 import { DeckJobStatus } from "@/components/card-jobs";
@@ -63,6 +64,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
       },
     }),
   ]);
+  const cardsLeft = await cardsLeftToday(user);
 
   const node = byId.get(deck.id);
   const stats = node?.total ?? EMPTY_DECK_STATS;
@@ -181,6 +183,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
           sourceName={source.name}
           defaultDirection={deck.direction}
           picturesAvailable={imagesAvailable()}
+          cardsLeft={cardsLeft}
         />
         {/* The same status again, next to the form it was started from. */}
         <DeckJobStatus deckId={deck.id} onlyAnnounced className="mt-2" />

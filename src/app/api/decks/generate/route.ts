@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const input = { userId: user.id, profile, ...parsed.data };
+  const input = { userId: user.id, email: user.email, profile, ...parsed.data };
   let job;
   try {
     job = await queueCardJob(input);

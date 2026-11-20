@@ -6,6 +6,8 @@ import { newCardState } from "./srs";
 import { trySynthesize, ttsAvailable } from "./tts";
 import { cardTypesFor } from "./card-direction";
 import { generateCardImage, imagesAvailable } from "./images";
+import { cardsLeftToday } from "./allowance";
+import { cardLimitMessage, cardsPerWord } from "./limits";
 import {
   CARD_JOB_STALE_AFTER_MS,
   cardJobLimitReached,
@@ -42,6 +44,8 @@ export class CardJobInputError extends Error {
 
 export type CardJobInput = {
   userId: string;
+  /** The account's email, which decides its daily cap (limits.ts). */
+  email: string;
   profile: {
     id: string;
     targetLanguage: string;
@@ -94,7 +98,7 @@ export async function queueCardJob(input: CardJobInput, now: Date = new Date()):
   const deck = deckId
     ? await prisma.deck.findFirst({
         where: { id: deckId, userId, profileId: profile.id },
-        select: { id: true, name: true },
+        select: { id: true, name: true, direction: true },
       })
     : null;
   if (deckId && !deck) throw new CardJobInputError("Deck not found", 404);
@@ -119,6 +123,14 @@ export async function queueCardJob(input: CardJobInput, now: Date = new Date()):
       `${MAX_CARD_JOBS_IN_PROGRESS} batches of cards are already being made — wait for one to finish.`,
       429,
     );
+  }
+
+  // The daily cap (the owner has none). Refused outright rather than trimmed:
+  // the learner gets the batch they asked for, or a clear "n left today".
+  const left = await cardsLeftToday({ id: userId, email: input.email }, now);
+  const perWord = cardsPerWord(input.direction ?? deck?.direction);
+  if (left !== null && input.count * perWord > left) {
+    throw new CardJobInputError(cardLimitMessage(left, perWord), 429);
   }
 
   const job = await prisma.cardJob.create({
@@ -279,7 +291,9 @@ async function makeCards(jobId: string, input: CardJobInput, started: number) {
         }),
       );
     }
-    if (shouldSpeak) await setJob({ done: index + 1, created: created.length });
+    // `created` stays current even without audio: if the job fails midway,
+    // the daily cap still counts the cards it made.
+    await setJob(shouldSpeak ? { done: index + 1, created: created.length } : { created: created.length });
   }
 
   // Picture cards are studied right away (they fall back to the translation
