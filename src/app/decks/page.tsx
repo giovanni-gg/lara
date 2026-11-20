@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Archive, Layers, Plus, Sparkles } from "lucide-react";
+import { Archive, CircleHelp, Layers, Plus, Sparkles } from "lucide-react";
 import { getActiveProfile } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { loadDeckTree } from "@/lib/deck-tree";
@@ -46,10 +46,20 @@ export default async function DecksPage() {
         title="Decks"
         subtitle={`${language.flag} ${language.name} · ${active.level} · ${decks} ${decks === 1 ? "deck" : "decks"}`}
         action={
-          <ButtonLink href="/decks/new" variant="secondary" size="sm" className="shrink-0">
-            <Plus className="size-4" aria-hidden />
-            New
-          </ButtonLink>
+          <div className="flex shrink-0 items-center gap-1">
+            <Link
+              href="/how-it-works"
+              aria-label="How Lara works"
+              title="How Lara works"
+              className="grid size-9 place-items-center rounded-xl text-muted transition-colors hover:text-foreground"
+            >
+              <CircleHelp className="size-5" strokeWidth={1.8} aria-hidden />
+            </Link>
+            <ButtonLink href="/decks/new" variant="secondary" size="sm">
+              <Plus className="size-4" aria-hidden />
+              New
+            </ButtonLink>
+          </div>
         }
       />
 

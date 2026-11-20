@@ -102,6 +102,25 @@ body {
   }
 }
 
+/* "How Lara works": the forgetting curve draws itself once, on load.
+   Needs pathLength="1" on the path. */
+.curve-draw {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 1;
+  animation: curve-draw 1800ms cubic-bezier(0.4, 0, 0.2, 1) 200ms forwards;
+}
+@keyframes curve-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .curve-draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
 /* Hide scrollbars on the horizontal chip rows without losing scrollability. */
 .no-scrollbar {
   scrollbar-width: none;
