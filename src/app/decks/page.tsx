@@ -49,8 +49,8 @@ export default async function DecksPage() {
           <div className="flex shrink-0 items-center gap-1">
             <Link
               href="/how-it-works"
-              aria-label="How Lara works"
-              title="How Lara works"
+              aria-label="How LaraMig works"
+              title="How LaraMig works"
               className="grid size-9 place-items-center rounded-xl text-muted transition-colors hover:text-foreground"
             >
               <CircleHelp className="size-5" strokeWidth={1.8} aria-hidden />

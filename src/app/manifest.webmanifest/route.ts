@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 /**
- * PWA manifest, so Lara installs to the iPhone home screen and opens without
+ * PWA manifest, so LaraMig installs to the iPhone home screen and opens without
  * Safari chrome. Icons are inline SVG data URIs — no binary assets to manage.
  */
 const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#0b0d10"/><text x="256" y="336" font-size="260" text-anchor="middle" fill="#f2a33c" font-family="Georgia,serif">L</text></svg>`;
@@ -11,8 +11,8 @@ export function GET() {
 
   return NextResponse.json(
     {
-      name: "Lara",
-      short_name: "Lara",
+      name: "LaraMig",
+      short_name: "LaraMig",
       description:
         "Flashcards and immersion reading, generated for your level.",
       start_url: "/",

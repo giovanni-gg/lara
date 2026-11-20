@@ -16,12 +16,12 @@ const display = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "Lara",
+  title: "LaraMig",
   description: "Flashcards and immersion reading, generated for your level.",
-  applicationName: "Lara",
+  applicationName: "LaraMig",
   appleWebApp: {
     capable: true,
-    title: "Lara",
+    title: "LaraMig",
     statusBarStyle: "black-translucent",
   },
   manifest: "/manifest.webmanifest",

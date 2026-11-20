@@ -8,7 +8,7 @@ import { ForgettingCurve } from "@/components/forgetting-curve";
 import { ButtonLink, Screen } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
-export const metadata = { title: "How Lara works · Lara" };
+export const metadata = { title: "How LaraMig works · LaraMig" };
 
 const RETENTION = SCHEDULER_SETTINGS.desiredRetention;
 const STEP_MINUTES = parseInt(SCHEDULER_SETTINGS.relearningSteps[0], 10);
@@ -53,7 +53,7 @@ export default async function HowItWorksPage() {
 
       <header className="mt-2">
         <h1 className="font-display text-[30px] leading-[1.1] font-semibold tracking-tight text-balance">
-          How Lara works
+          How LaraMig works
         </h1>
         <p className="mt-2.5 text-[15px] leading-relaxed text-muted text-pretty">
           One idea does most of the work: see each word again just before you would forget it.
@@ -92,9 +92,9 @@ export default async function HowItWorksPage() {
         </dl>
       </Section>
 
-      <Section title="How Lara picks the moment">
+      <Section title="How LaraMig picks the moment">
         <p>
-          Lara schedules with FSRS, a modern open-source algorithm (Anki uses it too). It keeps
+          LaraMig schedules with FSRS, a modern open-source algorithm (Anki uses it too). It keeps
           a small model of each card&apos;s memory, how stable it is and how hard it is for you,
           and updates it every time you answer.
         </p>

@@ -8,7 +8,7 @@ export default function OnboardingPage() {
       <div className="pt-16 pb-8 text-center">
         <p className="font-display text-5xl">🪶</p>
         <h1 className="font-display mt-4 text-4xl font-semibold tracking-tight">
-          Lara
+          LaraMig
         </h1>
         <p className="mx-auto mt-3 max-w-xs text-sm text-muted">
           Flashcards you create by describing them, and reading pitched just

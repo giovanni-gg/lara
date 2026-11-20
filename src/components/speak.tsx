@@ -326,7 +326,7 @@ async function requestSession(
 /** Asks for the microphone up front, so a refusal gets a clear message. */
 async function ensureMicrophone() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("This browser can't use the microphone here. Open Lara over https, in Safari or Chrome.");
+    throw new Error("This browser can't use the microphone here. Open LaraMig over https, in Safari or Chrome.");
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });

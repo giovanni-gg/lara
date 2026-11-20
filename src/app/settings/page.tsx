@@ -44,7 +44,7 @@ export default async function SettingsPage() {
         href="/how-it-works"
         className="mb-5 flex items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 text-sm font-medium"
       >
-        <span>How Lara works</span>
+        <span>How LaraMig works</span>
         <span className="text-muted" aria-hidden>
           ›
         </span>
