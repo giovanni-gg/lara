@@ -11,6 +11,8 @@ import {
 import { hasAiCredentials } from "@/lib/ai/model";
 import { ttsAvailable } from "@/lib/tts";
 import { SCHEDULER_SETTINGS } from "@/lib/srs";
+import { loadProgress } from "@/lib/progress";
+import { ProgressSection } from "@/components/progress-charts";
 import {
   Button,
   Field,
@@ -26,6 +28,7 @@ export default async function SettingsPage() {
 
   const language = getLanguage(active.targetLanguage);
   const source = getLanguage(active.sourceLanguage);
+  const progress = await loadProgress(active.id);
 
   return (
     <Screen>
@@ -33,6 +36,8 @@ export default async function SettingsPage() {
         title="You"
         subtitle={`${language.flag} ${language.name} from ${source.name}`}
       />
+
+      <ProgressSection progress={progress} />
 
       {profiles.length > 1 ? (
         <section className="mb-5">
