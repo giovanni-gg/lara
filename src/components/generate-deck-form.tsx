@@ -7,6 +7,7 @@ import { Button, inputStyles } from "@/components/ui";
 import { DirectionPicker, pickerDirection, type Direction } from "@/components/direction-picker";
 import { announceCardJob, onCardJobFinished } from "@/components/card-jobs-pill";
 import type { CardDirection } from "@/generated/prisma/enums";
+import { DAILY_CARD_LIMIT } from "@/lib/limits";
 
 /** Topics for a brand-new deck. Inside a deck the chips come from the deck itself. */
 const SUGGESTIONS = [
@@ -31,6 +32,7 @@ export function GenerateDeckForm({
   sourceName,
   defaultDirection = "RECOGNITION",
   picturesAvailable = true,
+  cardsLeft = null,
 }: {
   deckId?: string;
   /** The deck being added to, named in the placeholder. */
@@ -41,6 +43,8 @@ export function GenerateDeckForm({
   defaultDirection?: CardDirection;
   /** False when the server can't draw pictures (no GEMINI_API_KEY). */
   picturesAvailable?: boolean;
+  /** Today's allowance when the page loaded (limits.ts); null for the owner, who has none. */
+  cardsLeft?: number | null;
 }) {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
@@ -183,6 +187,11 @@ export function GenerateDeckForm({
         </Button>
       </div>
 
+      {cardsLeft !== null ? (
+        <p className="mt-2 text-xs text-muted">
+          {cardsLeft} of {DAILY_CARD_LIMIT} cards left today
+        </p>
+      ) : null}
       {error ? <p className="mt-2 text-sm text-again">{error}</p> : null}
     </form>
   );

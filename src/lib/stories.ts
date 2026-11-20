@@ -9,6 +9,8 @@ import {
 import { trySynthesize } from "./tts";
 import { ArticleStatus, ContentKind, type CefrLevel } from "@/generated/prisma/enums";
 import { nextLevelUp } from "./languages";
+import { storiesLeftToday } from "./allowance";
+import { storyLimitMessage } from "./limits";
 
 /**
  * Writing a story is a server-side job, so leaving the page can't lose it:
@@ -37,7 +39,10 @@ export const STORY_STALE_AFTER_MS = 10 * 60_000;
 
 /** Bad input the caller should see as a 4xx, e.g. a deck that isn't theirs. */
 export class StoryInputError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly status: 400 | 429 = 400,
+  ) {
     super(message);
     this.name = "StoryInputError";
   }
@@ -45,6 +50,8 @@ export class StoryInputError extends Error {
 
 export type CreateStoryInput = {
   userId: string;
+  /** The account's email, which decides its daily cap (limits.ts). */
+  email: string;
   profile: {
     id: string;
     targetLanguage: string;
@@ -61,7 +68,15 @@ export type CreateStoryInput = {
 const BACKGROUND_WORDS = 250;
 
 /** Saves a "Writing…" placeholder for a story and returns its id. Fast; no AI. */
-export async function queueStory({ userId, profile, prompt, deckId }: CreateStoryInput) {
+export async function queueStory(
+  { userId, email, profile, prompt, deckId }: CreateStoryInput,
+  now: Date = new Date(),
+) {
+  // The daily cap (the owner has none) comes first: nothing else is worth checking past it.
+  if ((await storiesLeftToday({ id: userId, email }, now)) === 0) {
+    throw new StoryInputError(storyLimitMessage(), 429);
+  }
+
   let topic: string | null = prompt ?? null;
   if (deckId) {
     const row = await prisma.deck.findFirst({

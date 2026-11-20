@@ -9,13 +9,16 @@ import { DirectionPicker } from "@/components/direction-picker";
 import { Button, Field, Screen, inputStyles } from "@/components/ui";
 import { GenerateDeckForm } from "@/components/generate-deck-form";
 import { imagesAvailable } from "@/lib/images";
+import { cardsLeftToday } from "@/lib/allowance";
 
 export default async function NewDeckPage({ searchParams }: PageProps<"/decks/new">) {
   const { parent } = await searchParams;
-  const { active } = await getActiveProfile();
+  const { user, active } = await getActiveProfile();
   if (!active) redirect("/onboarding");
 
+  // Sequential: the tree runs an aggregate query (see AGENTS.md).
   const { roots, byId } = await loadDeckTree(active.id);
+  const cardsLeft = await cardsLeftToday(user);
   const folders = flattenWithPaths(roots);
   const parentId = typeof parent === "string" && byId.has(parent) ? parent : "";
   const parentNode = parentId ? byId.get(parentId) : undefined;
@@ -44,7 +47,12 @@ export default async function NewDeckPage({ searchParams }: PageProps<"/decks/ne
         // The quick path: describe it, get a finished deck with audio.
         <section className="mb-6">
           <h2 className="mb-2 font-display text-base font-semibold">Generate with AI</h2>
-          <GenerateDeckForm targetName={target} sourceName={source} picturesAvailable={pictures} />
+          <GenerateDeckForm
+            targetName={target}
+            sourceName={source}
+            picturesAvailable={pictures}
+            cardsLeft={cardsLeft}
+          />
           <p className="mt-4 text-center text-xs uppercase tracking-wide text-muted">or start empty</p>
         </section>
       )}

@@ -8,6 +8,7 @@ import { getLanguage } from "@/lib/languages";
 import { flattenWithPaths, loadDeckTree, type DeckNode } from "@/lib/deck-tree";
 import { EMPTY_DECK_STATS } from "@/lib/study";
 import { imagesAvailable } from "@/lib/images";
+import { cardsLeftToday } from "@/lib/allowance";
 import { archiveDeck, moveDeck, unarchiveDeck, updateDeckNewCardsPerDay } from "@/app/actions";
 import { GenerateDeckForm } from "@/components/generate-deck-form";
 import { CardRow } from "@/components/card-row";
@@ -62,6 +63,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
       },
     }),
   ]);
+  const cardsLeft = await cardsLeftToday(user);
 
   const node = byId.get(deck.id);
   const stats = node?.total ?? EMPTY_DECK_STATS;
@@ -177,6 +179,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
           sourceName={source.name}
           defaultDirection={deck.direction}
           picturesAvailable={imagesAvailable()}
+          cardsLeft={cardsLeft}
         />
         <ButtonLink
           href={`/decks/${deck.id}/cards/new`}

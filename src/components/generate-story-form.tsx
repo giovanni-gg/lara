@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Headphones, Loader2 } from "lucide-react";
 import { Button, inputStyles } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { DAILY_STORY_LIMIT } from "@/lib/limits";
 
 const LENGTHS = [
   { value: "short", label: "Short", hint: "~250 words · 2 min" },
@@ -33,9 +34,12 @@ export type StoryDeckOption = {
 export function GenerateStoryForm({
   decks,
   defaultDeckId,
+  storiesLeft = null,
 }: {
   decks: StoryDeckOption[];
   defaultDeckId?: string;
+  /** Today's allowance (limits.ts); null for the owner, who has none. */
+  storiesLeft?: number | null;
 }) {
   const router = useRouter();
   const [deckId, setDeckId] = useState(defaultDeckId ?? "");
@@ -170,6 +174,11 @@ export function GenerateStoryForm({
           {length === "long" || length === "epic"
             ? "A story this long takes a minute or two. You can leave this screen; it'll be in Listen & Read when it's done."
             : "This takes about half a minute, audio included."}
+        </p>
+      ) : null}
+      {storiesLeft !== null ? (
+        <p className="text-xs text-muted">
+          {storiesLeft} of {DAILY_STORY_LIMIT} stories left today
         </p>
       ) : null}
       {error ? <p className="text-sm text-again">{error}</p> : null}
