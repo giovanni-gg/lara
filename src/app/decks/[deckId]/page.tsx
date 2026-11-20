@@ -172,6 +172,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
         <h2 className="mb-2 font-display text-base font-semibold">Add cards</h2>
         <GenerateDeckForm
           deckId={deck.id}
+          deckName={deck.name}
           targetName={target.name}
           sourceName={source.name}
           defaultDirection={deck.direction}

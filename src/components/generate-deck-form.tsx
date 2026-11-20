@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Wand2 } from "lucide-react";
 import { Button, inputStyles } from "@/components/ui";
 import { DirectionPicker, pickerDirection, type Direction } from "@/components/direction-picker";
 import type { CardDirection } from "@/generated/prisma/enums";
 
+/** Topics for a brand-new deck. Inside a deck the chips come from the deck itself. */
 const SUGGESTIONS = [
   "ordering food at a restaurant",
   "50 most common verbs",
@@ -21,12 +22,15 @@ const SUGGESTIONS = [
  */
 export function GenerateDeckForm({
   deckId,
+  deckName,
   targetName,
   sourceName,
   defaultDirection = "RECOGNITION",
   picturesAvailable = true,
 }: {
   deckId?: string;
+  /** The deck being added to, named in the placeholder. */
+  deckName?: string;
   targetName: string;
   sourceName: string;
   /** The deck's own default when adding to one. */
@@ -41,10 +45,29 @@ export function GenerateDeckForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  // In an existing deck the deck says what to make; the prompt only refines it.
+  const ready = deckId ? true : prompt.trim().length >= 3;
+
+  // A deck's chips are written from the deck by the AI (cached server-side),
+  // fetched after render so the page never waits on them. null = loading;
+  // [] = none to show (no AI, or it failed).
+  const [chips, setChips] = useState<string[] | null>(deckId ? null : SUGGESTIONS);
+  const [chipsVersion, setChipsVersion] = useState(0);
+  useEffect(() => {
+    if (!deckId) return;
+    const controller = new AbortController();
+    fetch(`/api/decks/${deckId}/suggestions`, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : { suggestions: [] }))
+      .then((data: { suggestions?: string[] }) => setChips(data.suggestions ?? []))
+      .catch(() => {
+        if (!controller.signal.aborted) setChips([]);
+      });
+    return () => controller.abort();
+  }, [deckId, chipsVersion]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!prompt.trim() || busy) return;
+    if (!ready || busy) return;
 
     setBusy(true);
     setError(null);
@@ -77,6 +100,8 @@ export function GenerateDeckForm({
         return;
       }
       router.refresh();
+      // The deck grew: its chips may be rewritten for what it now covers.
+      setChipsVersion((v) => v + 1);
     } catch {
       setError("Could not reach the server");
     } finally {
@@ -90,23 +115,35 @@ export function GenerateDeckForm({
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
         rows={2}
-        placeholder="What do you want to learn?"
+        placeholder={
+          deckId
+            ? `More ${deckName ?? "of this deck"} — or narrow it down${chips?.[0] ? `, e.g. ${chips[0]}` : ""}`
+            : "What do you want to learn?"
+        }
         className={`${inputStyles} resize-none`}
         aria-label="Describe the cards to generate"
       />
 
-      <div className="no-scrollbar -mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
-        {SUGGESTIONS.map((suggestion) => (
-          <button
-            key={suggestion}
-            type="button"
-            onClick={() => setPrompt(suggestion)}
-            className="shrink-0 rounded-full border border-line px-2.5 py-1 text-xs text-muted active:border-accent/60"
-          >
-            {suggestion}
-          </button>
-        ))}
-      </div>
+      {chips === null ? (
+        <div className="mt-2 flex gap-1.5 pb-0.5" aria-hidden>
+          {["w-16", "w-20", "w-14"].map((width) => (
+            <span key={width} className={`h-[26px] ${width} shrink-0 animate-pulse rounded-full border border-line`} />
+          ))}
+        </div>
+      ) : chips.length > 0 ? (
+        <div className="no-scrollbar -mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+          {chips.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => setPrompt(suggestion)}
+              className="shrink-0 rounded-full border border-line px-2.5 py-1 text-xs text-muted active:border-accent/60"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <DirectionPicker
         target={targetName}
@@ -132,7 +169,7 @@ export function GenerateDeckForm({
             ))}
           </select>
         </label>
-        <Button type="submit" size="sm" disabled={busy || !prompt.trim()} className="flex-1">
+        <Button type="submit" size="sm" disabled={busy || !ready} className="flex-1">
           {busy ? (
             <>
               <Loader2 className="size-4 animate-spin" aria-hidden />

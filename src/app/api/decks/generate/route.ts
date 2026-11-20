@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireActiveProfile } from "@/lib/session";
 import { generateCards } from "@/lib/ai/cards";
+import { loadDeckContext } from "@/lib/deck-context";
 import { MissingAiCredentialsError } from "@/lib/ai/model";
 import { newCardState } from "@/lib/srs";
 import { trySynthesize, ttsAvailable } from "@/lib/tts";
@@ -10,15 +11,21 @@ import { cardTypesFor } from "@/lib/card-direction";
 import { generateCardImage, imagesAvailable } from "@/lib/images";
 import { CardType } from "@/generated/prisma/enums";
 
-const body = z.object({
-  prompt: z.string().min(3).max(500),
-  count: z.number().int().min(1).max(50).default(15),
-  /** Add to an existing deck instead of creating one. */
-  deckId: z.string().optional(),
-  withAudio: z.boolean().default(true),
-  /** Which side faces first. Defaults to the deck's own setting. */
-  direction: z.enum(["RECOGNITION", "PRODUCTION", "BOTH", "PICTURE"]).optional(),
-});
+const body = z
+  .object({
+    /** Required for a new deck; adding to a deck it only refines, and may be empty. */
+    prompt: z.string().trim().max(500).default(""),
+    count: z.number().int().min(1).max(50).default(15),
+    /** Add to an existing deck instead of creating one. */
+    deckId: z.string().optional(),
+    withAudio: z.boolean().default(true),
+    /** Which side faces first. Defaults to the deck's own setting. */
+    direction: z.enum(["RECOGNITION", "PRODUCTION", "BOTH", "PICTURE"]).optional(),
+  })
+  .refine((b) => b.deckId || b.prompt.length >= 3, { path: ["prompt"] });
+
+/** The learner's most recent other cards, so the model doesn't repeat them. */
+const OTHER_CARDS_LIMIT = 300;
 
 // Audio is recorded before the response; pictures are drawn in `after()`,
 // inside the same budget.
@@ -39,7 +46,7 @@ export async function POST(request: Request) {
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Expected { prompt, count?, deckId?, withAudio?, direction? }" },
+      { error: "Expected { prompt, count?, deckId?, withAudio?, direction? }; prompt may be empty only with deckId" },
       { status: 400 },
     );
   }
@@ -55,13 +62,29 @@ export async function POST(request: Request) {
     );
   }
 
-  // Everything the learner already has, so the model doesn't repeat itself.
-  const existing = await prisma.card.findMany({
+  // Adding to a deck: load it first, so the model sees what the deck is and
+  // what it already holds. Queries run one after another (see AGENTS.md).
+  const existingDeck = deckId
+    ? await prisma.deck.findFirst({
+        where: { id: deckId, userId: user.id, profileId: profile.id },
+      })
+    : null;
+  if (deckId && !existingDeck) {
+    return NextResponse.json({ error: "Deck not found" }, { status: 404 });
+  }
+
+  const deckContext = existingDeck ? await loadDeckContext(profile.id, existingDeck) : undefined;
+
+  // The learner's other words, so the model doesn't repeat itself across decks.
+  const others = await prisma.card.findMany({
     where: { userId: user.id, deck: { profileId: profile.id } },
     select: { target: true },
     orderBy: { createdAt: "desc" },
-    take: 300,
+    take: OTHER_CARDS_LIMIT,
   });
+  // Everything to skip afterwards: the deck's own cards always count, however
+  // many newer cards the learner has made elsewhere.
+  const existing = [...(deckContext?.cards ?? []), ...others].map((c) => c.target);
 
   let batch;
   try {
@@ -71,7 +94,8 @@ export async function POST(request: Request) {
       sourceLanguage: profile.sourceLanguage,
       level: profile.level,
       count,
-      existingTargets: existing.map((c) => c.target),
+      existingTargets: others.map((c) => c.target),
+      deck: deckContext,
     });
   } catch (error) {
     if (error instanceof MissingAiCredentialsError) {
@@ -81,29 +105,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
-  const deck = deckId
-    ? await prisma.deck.findFirst({
-        where: { id: deckId, userId: user.id, profileId: profile.id },
-      })
-    : await prisma.deck.create({
-        data: {
-          userId: user.id,
-          profileId: profile.id,
-          name: batch.deckName,
-          emoji: batch.emoji,
-          description: prompt,
-          sourcePrompt: prompt,
-          direction: requested ?? "RECOGNITION",
-        },
-      });
+  const deck =
+    existingDeck ??
+    (await prisma.deck.create({
+      data: {
+        userId: user.id,
+        profileId: profile.id,
+        name: batch.deckName,
+        emoji: batch.emoji,
+        description: prompt,
+        sourcePrompt: prompt,
+        direction: requested ?? "RECOGNITION",
+      },
+    }));
 
-  if (!deck) {
-    return NextResponse.json({ error: "Deck not found" }, { status: 404 });
-  }
-
-  // Skip anything that slipped through as a duplicate of an existing card.
-  const seen = new Set(existing.map((c) => c.target.toLowerCase()));
-  const fresh = batch.cards.filter((c) => !seen.has(c.target.toLowerCase()));
+  // Skip anything that slipped through as a duplicate of an existing card,
+  // or that the model repeated within the batch.
+  const seen = new Set(existing.map((t) => t.trim().toLowerCase()));
+  const fresh = batch.cards.filter((c) => {
+    const key = c.target.trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   const shouldSpeak = withAudio && ttsAvailable();
   const cardTypes = cardTypesFor(requested ?? deck.direction);
