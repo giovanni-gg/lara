@@ -25,6 +25,7 @@ vi.mock("@/lib/ai/about", async (importOriginal) => ({
   distilAbout: vi.fn(),
 }));
 vi.mock("@/lib/ai/cards", () => ({ generateCards: vi.fn() }));
+vi.mock("@/lib/ai/tidy", () => ({ tidyTranscript: vi.fn(async (text: string) => text.trim()) }));
 vi.mock("@/lib/ai/stories", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ai/stories")>()),
   generateStory: vi.fn(),
@@ -147,6 +148,22 @@ describe("POST /api/transcribe", () => {
     expect(sent.get("language_code")).toBeNull();
     expect((sent.get("file") as Blob).size).toBe(2048);
     expect(await prisma.transcription.count({ where: { userId: user.id } })).toBe(1);
+  });
+
+  it("tidies the loose transcript before returning it", async () => {
+    const { tidyTranscript } = await import("@/lib/ai/tidy");
+    vi.mocked(tidyTranscript).mockResolvedValueOnce("Jag springer maraton i maj.");
+    const res = await upload(clip());
+    expect(await res.json()).toEqual({ text: "Jag springer maraton i maj." });
+    expect(vi.mocked(tidyTranscript)).toHaveBeenLastCalledWith("Jag springer maraton.");
+  });
+
+  it("falls back to the raw transcript when the tidy-up fails", async () => {
+    const { tidyTranscript } = await import("@/lib/ai/tidy");
+    vi.mocked(tidyTranscript).mockRejectedValueOnce(new Error("overloaded"));
+    const res = await upload(clip());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ text: "Jag springer maraton." });
   });
 
   it("rejects a missing, non-audio or oversized upload without calling ElevenLabs", async () => {

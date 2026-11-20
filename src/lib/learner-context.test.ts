@@ -37,7 +37,8 @@ describe("the shared wording", () => {
   it("says to use the note lightly and never invent facts", () => {
     const rules = learnerContextRules("the example sentences");
     expect(rules).toContain("let it shape the example sentences");
-    expect(rules).toContain("not in every item");
+    expect(rules).toContain("not every one");
+    expect(rules).toContain("ignore the note entirely");
     expect(rules).toContain("never the same personal fact over and over");
     expect(rules).toContain("Never invent facts about the learner");
   });

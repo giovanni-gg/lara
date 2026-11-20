@@ -187,7 +187,8 @@ describe("buildCardRequest with a note about the learner", () => {
   it("tells the model to use it lightly, with the deck's theme first", () => {
     const { call } = buildCardRequest({ ...base, deck: ADJECTIVES, learner: NOTE });
     expect(call.instructions).toContain("especially the example sentences");
-    expect(call.instructions).toContain("not in every item");
+    expect(call.instructions).toContain("not every one");
+    expect(call.instructions).toContain("background context only");
     expect(call.instructions).toContain("never the same personal fact over and over");
     expect(call.instructions).toContain("Never invent facts about the learner");
     expect(call.instructions).toContain("The deck's theme always comes first");

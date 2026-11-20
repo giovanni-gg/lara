@@ -45,8 +45,9 @@ export function learnerContext(profile: AboutFields | null | undefined): string 
  */
 export function learnerContextRules(subject: string): string {
   return [
-    `You also get a short note about the learner's life. Where it fits, let it shape ${subject}, so the material is about their world rather than a textbook's.`,
-    "Use it naturally and lightly: not in every item, and never the same personal fact over and over.",
+    `You also get a short note about the learner's life. It is background context only, not a topic: where it genuinely fits, let it shape ${subject}, so some of the material touches their world rather than a textbook's.`,
+    "Many requests have nothing to do with their life; then ignore the note entirely. Useful, general material always comes first, and a personal touch is a bonus: a few items at most, not every one.",
+    "Use it naturally and lightly, and never the same personal fact over and over.",
     "Never invent facts about the learner beyond what the note says, and never mention that you were given a note.",
   ].join(" ");
 }

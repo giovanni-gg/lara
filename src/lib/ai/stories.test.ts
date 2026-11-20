@@ -12,7 +12,7 @@ describe("storyPrompt and the note about the reader", () => {
     expect(text).toContain(`About the learner (from their profile):\n${NOTE}`);
     expect(text).toContain("Set the story in their world");
     expect(text).toContain("Never invent facts about the learner");
-    expect(text).toContain("not in every item");
+    expect(text).toContain("not every one");
     expect(text).toContain("don't tell the story as the reader's own life");
   });
 

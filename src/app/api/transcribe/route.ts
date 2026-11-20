@@ -4,8 +4,10 @@ import { getCurrentUser } from "@/lib/session";
 import { transcriptionsLeftToday } from "@/lib/allowance";
 import { transcriptionLimitMessage } from "@/lib/limits";
 import { isAudioType, MAX_AUDIO_BYTES, sttAvailable, transcribe } from "@/lib/stt";
+import { hasAiCredentials } from "@/lib/ai/model";
+import { tidyTranscript } from "@/lib/ai/tidy";
 
-// Scribe takes a few seconds for a minute of speech.
+// Scribe takes a few seconds for a minute of speech, the tidy-up a few more.
 export const maxDuration = 60;
 
 const tooLarge = () =>
@@ -42,14 +44,24 @@ export async function POST(request: Request) {
   // Counted before the call: a clip sent costs whether or not it comes back.
   await prisma.transcription.create({ data: { userId: user.id } });
 
+  let raw: string;
   try {
-    const text = await transcribe(audio, audio instanceof File && audio.name ? audio.name : "about");
-    return NextResponse.json({ text });
+    raw = await transcribe(audio, audio instanceof File && audio.name ? audio.name : "about");
   } catch (error) {
     console.error("[transcribe]", error);
     return NextResponse.json(
       { error: "Couldn't transcribe that. Try again, or type instead." },
       { status: 502 },
     );
+  }
+
+  // Loose speech → readable text (fillers out, punctuation in). Formatting
+  // only; if the model is unavailable the raw transcript is still useful.
+  if (!hasAiCredentials()) return NextResponse.json({ text: raw });
+  try {
+    return NextResponse.json({ text: (await tidyTranscript(raw)) || raw });
+  } catch (error) {
+    console.error("[transcribe] tidy failed, returning the raw transcript", error);
+    return NextResponse.json({ text: raw });
   }
 }
