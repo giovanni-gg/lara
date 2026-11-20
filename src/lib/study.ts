@@ -9,10 +9,12 @@ import {
   startOfStudyDay,
   type RatingValue,
 } from "./srs";
+import { deckOrder, groupByDeck } from "./study-order";
 
 /**
- * Builds a study queue the way Anki does: due reviews first (they decay if you
- * skip them), then each deck's new cards for today.
+ * Builds a study queue deck by deck, in the Decks tree's order; within each
+ * deck, Anki's order: due reviews first (they decay if you skip them), then
+ * that deck's new cards for today.
  */
 
 export type QueueCard = {
@@ -27,7 +29,11 @@ export type QueueCard = {
   sentenceAudioUrl: string | null;
   imageUrl: string | null;
   state: FsrsState;
+  deckId: string;
+  /** "Parent · Deck", for the session header. */
   deckName: string;
+  /** The deck's own name, for the between-decks screen. */
+  deckTitle: string;
   /** What each answer button would schedule, so the UI can label them. */
   intervals: Record<RatingValue, string>;
 };
@@ -53,6 +59,7 @@ const CARD_SELECT = {
   lapses: true,
   learningSteps: true,
   lastReview: true,
+  deckId: true,
   deck: { select: { name: true, parent: { select: { name: true } } } },
 } as const;
 
@@ -74,7 +81,9 @@ export type BuildQueueOptions = {
 const MAX_SESSION_CARDS = 2000;
 
 /**
- * Every due review, then each deck's remaining new cards for today.
+ * One block per deck, in the Decks tree's order (a parent's own cards before
+ * its subdecks'): its due reviews, most overdue first, then its remaining new
+ * cards for today, oldest first. The session pauses between blocks.
  *
  * Reviews are uncapped by design (the learner always clears the backlog). New
  * cards are capped per deck by `Deck.newCardsPerDay`, counting cards that deck
@@ -108,7 +117,14 @@ export async function buildQueue({
   const position = new Map(freshIds.map((id, i) => [id, i]));
   const fresh = freshRows.sort((a, b) => position.get(a.id)! - position.get(b.id)!);
 
-  return [...due, ...fresh].map((card) => {
+  // One query for the tree's order, sorted as `loadDeckTree` sorts it.
+  const decks = await prisma.deck.findMany({
+    where: { profileId, archivedAt: null },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, parentId: true },
+  });
+
+  return groupByDeck(due, fresh, deckOrder(decks)).map((card) => {
     const previews = previewIntervals(card, now);
     return {
       id: card.id,
@@ -122,6 +138,8 @@ export async function buildQueue({
       sentenceAudioUrl: card.sentenceAudioUrl,
       imageUrl: card.imageUrl,
       state: card.state,
+      deckId: card.deckId,
+      deckTitle: card.deck.name,
       deckName: card.deck.parent
         ? `${card.deck.parent.name} · ${card.deck.name}`
         : card.deck.name,

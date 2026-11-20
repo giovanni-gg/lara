@@ -121,6 +121,44 @@ body {
   }
 }
 
+/* Between decks in a session: the tick pops, then the next deck rises in. */
+@keyframes deck-done-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes deck-next-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.deck-done-pop {
+  animation: deck-done-pop 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.deck-next-rise {
+  animation: deck-next-rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) 160ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deck-done-pop,
+  .deck-next-rise {
+    animation: none;
+  }
+}
+
 /* Hide scrollbars on the horizontal chip rows without losing scrollability. */
 .no-scrollbar {
   scrollbar-width: none;

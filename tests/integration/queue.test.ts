@@ -133,7 +133,40 @@ describe("buildQueue", () => {
     expect(ids(queue)).toEqual([kept.id]);
   });
 
-  it("serves due cards most-overdue first, then new cards oldest first across decks", async () => {
+  it("goes deck by deck in the tree's order, due before new within each, archived subdecks left out", async () => {
+    const { user, profile } = await setup();
+    const grammar = await createDeck(profile, { name: "Swedish grammar", sortOrder: 1 });
+    // Created before Adjectives but sorted after it: the tree's order wins.
+    const verbs = await createDeck(profile, { name: "Core top 80 verbs", parent: grammar, sortOrder: 2 });
+    const adjectives = await createDeck(profile, { name: "Adjectives", parent: grammar, sortOrder: 1 });
+    const archived = await createDeck(profile, { parent: grammar, sortOrder: 0, archivedAt: at(8) });
+    await createCard(archived, dueReview(NOW, 9));
+    await createCard(archived);
+    const created = (s: number) => ({ createdAt: new Date(NOW.getTime() - 100_000 + s * 1000) });
+
+    const verbNew = await createCard(verbs, created(1));
+    const adjNew = await createCard(adjectives, created(2));
+    const verbDue = await createCard(verbs, dueReview(NOW, 5)); // the most overdue card of all
+    const adjDueLate = await createCard(adjectives, dueReview(NOW, 1));
+    const adjDueEarly = await createCard(adjectives, dueReview(NOW, 3));
+    const grammarDue = await createCard(grammar, dueReview(NOW, 1));
+
+    const deckIds = await subtreeIds(profile.id, grammar.id);
+    const queue = await buildQueue({ userId: user.id, profileId: profile.id, deckIds, now: NOW });
+
+    expect(ids(queue)).toEqual(ids([grammarDue, adjDueEarly, adjDueLate, adjNew, verbDue, verbNew]));
+    expect(queue.map((c) => c.deckId)).toEqual([
+      grammar.id,
+      adjectives.id,
+      adjectives.id,
+      adjectives.id,
+      verbs.id,
+      verbs.id,
+    ]);
+    expect(queue[1]).toMatchObject({ deckTitle: "Adjectives", deckName: "Swedish grammar · Adjectives" });
+  });
+
+  it("serves each deck's due cards most-overdue first, then its new cards oldest first", async () => {
     const { user, profile } = await setup();
     const a = await createDeck(profile);
     const b = await createDeck(profile);
@@ -151,7 +184,8 @@ describe("buildQueue", () => {
 
     const queue = await buildQueue({ userId: user.id, profileId: profile.id, now: NOW });
 
-    expect(ids(queue)).toEqual(ids([d3, d2, d1, dLearn, n1, n2, n3]));
+    // Deck a (created first, so sorted first), then deck b.
+    expect(ids(queue)).toEqual(ids([d2, d1, dLearn, n2, d3, n1, n3]));
     // Every card carries its answer-button labels.
     expect(queue.find((c) => c.id === n1.id)?.intervals[1]).toBe("10m");
   });
