@@ -91,7 +91,9 @@ See `README.md` for what it is and how to run it.
   sessions cover the whole subtree. Get them from `loadDeckTree` (one
   `statsByDeck` pass, aggregated in memory) and `subtreeIds` — never per-node
   queries. `DeckStats.learning` is learning cards *due now* (Anki's Learn
-  column); Due = `due - learning`.
+  column); Due = `due - learning`. A session over a subtree runs deck by deck
+  in tree order (`src/lib/study-order.ts`), relearns rejoin their own deck's
+  block, and `DeckTransition` pauses between decks.
 - **Scheduler settings are fixed, not user settings.** `SCHEDULER_SETTINGS` in
   `srs.ts` mirrors the learner's Anki preset (85% retention, 10m steps, day
   starts 04:00, leech tag at 8 lapses). Keeping Settings small is the point;

@@ -7,12 +7,14 @@ import { useRouter } from "next/navigation";
 import { Check, MessageCircleQuestion, X } from "lucide-react";
 import { AudioButton } from "@/components/audio-button";
 import { CardChat } from "@/components/card-chat";
+import { DeckTransition } from "@/components/deck-transition";
 import { Button, ButtonLink } from "@/components/ui";
 import { prefetch, unlock } from "@/lib/audio-cache";
 import { RATING_LABELS, type RatingValue } from "@/lib/srs";
 import type { QueueCard } from "@/lib/study";
 import { cn } from "@/lib/utils";
 import { cardKind, KIND_LABELS, remainingByKind, type CardKind } from "@/lib/study-counts";
+import { deckBoundary, requeueInBlock } from "@/lib/study-order";
 
 // Anki's colours: New blue, Learn red, Due green (as in the deck list).
 const KIND_COLORS: Record<CardKind, string> = {
@@ -135,11 +137,16 @@ export function StudySession({
   // Debounces a double tap: the second would grade the same card again. By
   // object, not id or position: a relearning card returns as a new object.
   const graded = useRef<QueueCard | null>(null);
+  // The card on screen, for answers that land after the learner moved on.
+  const position = useRef(0);
+  // The first card of a deck the learner chose to carry on into (by object,
+  // as above): once it's this card, the between-decks screen is passed.
+  const [continuedTo, setContinuedTo] = useState<QueueCard | null>(null);
 
-  // The session's queue: the server's cards plus any answered Again (still
-  // learning) appended at the end, Anki-style. Re-seeded when "Study more"
-  // brings new props — adjusted during render, which React allows for state
-  // derived from props, rather than in an effect.
+  // The session's queue: the server's cards, deck by deck, plus any answered
+  // Again (still learning) at the end of their deck's block, Anki-style.
+  // Re-seeded when "Study more" brings new props — adjusted during render,
+  // which React allows for state derived from props, rather than in an effect.
   const [seed, setSeed] = useState(cards);
   const [queue, setQueue] = useState(cards);
   if (seed !== cards) {
@@ -154,9 +161,14 @@ export function StudySession({
   const card = queue[index] as QueueCard | undefined;
   // Not done while answers are in flight: one may yet come back as learning.
   const done = !card && unsent === 0;
+  // The first card of the next deck, not yet continued into: show the
+  // between-decks screen in its place. Never in a single-deck session.
+  const boundary = card && continuedTo !== card ? deckBoundary(queue, index) : null;
+  const between = boundary !== null;
 
   useEffect(() => {
     shownAt.current = Date.now();
+    position.current = index;
   }, [index]);
 
   // iOS starts audio suspended until a gesture. Resuming on every tap (a no-op
@@ -199,7 +211,7 @@ export function StudySession({
         // Still on minute-scale steps: it comes back before the session ends.
         else if (result?.state === "LEARNING" || result?.state === "RELEARNING") {
           const relearn = { ...card, state: result.state, intervals: result.intervals };
-          setQueue((current) => [...current, relearn]);
+          setQueue((current) => requeueInBlock(current, position.current, relearn));
         }
         setUnsent((n) => n - 1);
       });
@@ -213,9 +225,10 @@ export function StudySession({
   );
 
   // Desktop keyboard shortcuts: space reveals, 1-4 grades. Suspended while the
-  // chat sheet is open, or typing a question would grade the card.
+  // chat sheet is open, or typing a question would grade the card, and
+  // between decks, where the card isn't on screen yet.
   useEffect(() => {
-    if (chatOpen) return;
+    if (chatOpen || between) return;
     function onKey(event: KeyboardEvent) {
       if (!card) return;
       if (event.key === " " || event.key === "Enter") {
@@ -231,7 +244,7 @@ export function StudySession({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [answer, revealed, card, chatOpen]);
+  }, [answer, revealed, card, chatOpen, between]);
 
   // Never lose an answer silently.
   const notice =
@@ -281,13 +294,30 @@ export function StudySession({
   }
 
   // Past the last card with answers still in flight: one may come back as
-  // learning, so hold the done screen until they've all landed.
-  if (!card) {
+  // learning, so hold the done screen until they've all landed. Likewise
+  // between decks: a relearn rejoins the deck just finished.
+  if (!card || (between && unsent > 0)) {
     return (
       <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-2 px-6 text-center">
         <p className="text-sm text-muted">Saving answers…</p>
         {notice}
       </div>
+    );
+  }
+
+  if (boundary) {
+    return (
+      <DeckTransition
+        finished={boundary.finished.deckTitle}
+        finishedCount={boundary.finishedCount}
+        next={boundary.next.deckTitle}
+        nextCount={boundary.nextCount}
+        onContinue={() => {
+          // The card's clock starts now, not when this screen appeared.
+          shownAt.current = Date.now();
+          setContinuedTo(card);
+        }}
+      />
     );
   }
 
