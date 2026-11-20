@@ -1,6 +1,7 @@
-import { generateObject } from "ai";
+import { generateObject, type ModelMessage } from "ai";
 import { z } from "zod";
 import { assertAiCredentials, getModel } from "./model";
+import { anthropicOptions, CACHE_BREAKPOINT, loggedCall, MAX_RETRIES } from "./call";
 import { getLanguage } from "../languages";
 import type { CefrLevel } from "@/generated/prisma/enums";
 
@@ -27,14 +28,23 @@ const generatedCard = z.object({
     .describe("One to three lowercase topic tags, e.g. ['verbs','travel']"),
 });
 
-const cardBatch = z.object({
+/** A new deck: the model names it too. */
+export const newDeckBatch = z.object({
   deckName: z.string().describe("A short deck title, 2-4 words, no emoji"),
   emoji: z.string().describe("A single emoji that fits the deck topic"),
   cards: z.array(generatedCard),
 });
 
+/** Cards for an existing deck: it already has a name, so only the cards. */
+export const deckAdditionBatch = z.object({ cards: z.array(generatedCard) });
+
 export type GeneratedCard = z.infer<typeof generatedCard>;
-export type GeneratedCardBatch = z.infer<typeof cardBatch>;
+/** `deckName`/`emoji` only come back for a new deck. */
+export type GeneratedCardBatch = {
+  deckName?: string;
+  emoji?: string;
+  cards: GeneratedCard[];
+};
 
 /** The deck new cards are added to, so they fit it rather than just the prompt. */
 export type DeckContext = {
@@ -66,6 +76,17 @@ export type GenerateCardsInput = {
  * deck's own cards come on top and are never crowded out.
  */
 const OTHER_AVOID_LIMIT = 300;
+/** Deck cards shown in full, so the model copies their format. The rest go as bare words. */
+export const DECK_EXAMPLES = 5;
+
+/**
+ * Output budget: ~150 tokens per card of JSON plus headroom for Opus 5.5's
+ * (low-effort) thinking, which counts against the same limit. Generous on
+ * purpose: a cut-off answer is broken JSON and the whole batch is lost.
+ */
+export function cardOutputTokens(count: number): number {
+  return 4_000 + count * 300;
+}
 
 const uniqueCaseless = (words: string[]): string[] => {
   const seen = new Set<string>();
@@ -77,10 +98,36 @@ const uniqueCaseless = (words: string[]): string[] => {
   });
 };
 
+/** Header, a few full example cards, then every other word, compactly. */
+export function describeDeck(deck: DeckContext): string {
+  const lines = [`The deck: "${deck.path.join("::")}"`];
+  if (deck.description?.trim()) lines.push(`Description: ${deck.description.trim()}`);
+  if (deck.sourcePrompt?.trim() && deck.sourcePrompt.trim() !== deck.description?.trim()) {
+    lines.push(`First generated from: ${deck.sourcePrompt.trim()}`);
+  }
+  if (deck.cards.length === 0) {
+    lines.push("The deck has no cards yet: go by its name and description.");
+    return lines.join("\n");
+  }
+  const examples = deck.cards.slice(0, DECK_EXAMPLES);
+  lines.push(
+    `Example cards from the deck (target — source [tags]):\n${examples
+      .map((c) => `${c.target} — ${c.source}${c.tags.length > 0 ? ` [${c.tags.join(", ")}]` : ""}`)
+      .join("\n")}`,
+  );
+  const rest = uniqueCaseless(deck.cards.slice(DECK_EXAMPLES).map((c) => c.target));
+  if (rest.length > 0) lines.push(`Every other word already in the deck:\n${rest.join(", ")}`);
+  return lines.join("\n");
+}
+
 /**
- * The instructions and prompt for one generation, without calling the model.
- * `avoid` is every word the model was told not to repeat: the deck's own
- * cards first, then up to OTHER_AVOID_LIMIT of the learner's others.
+ * Everything one generation sends, without calling the model.
+ *
+ * Ordered stable → volatile for the prompt cache: the fixed instructions
+ * (system), then the context (the deck; or, for a new deck, the learner's
+ * words) marked as the cache breakpoint, then the ask. `avoid` is every word
+ * the model was told not to repeat: the deck's own first, then up to
+ * OTHER_AVOID_LIMIT of the learner's others.
  */
 export function buildCardRequest({
   prompt,
@@ -90,7 +137,7 @@ export function buildCardRequest({
   count,
   existingTargets = [],
   deck,
-}: GenerateCardsInput): { instructions: string; prompt: string; avoid: string[] } {
+}: GenerateCardsInput) {
   const target = getLanguage(targetLanguage).name;
   const source = getLanguage(sourceLanguage).name;
 
@@ -113,7 +160,7 @@ export function buildCardRequest({
     ...(deck
       ? [
           "You are adding cards to an existing deck, and every new card must belong in it.",
-          "Work out what the deck is from its name, its path and its existing cards, then match it: the same theme, the same word class (a deck of adjectives gets only adjectives, a deck of verbs only verbs), the same format (bare words, phrases or full expressions; with or without articles; translations written the same way) and the same difficulty.",
+          "Work out what the deck is from its name, its path and its existing cards, then match it: the same theme, the same word class (a deck of adjectives gets only adjectives, a deck of verbs only verbs), the same format as the example cards (bare words, phrases or full expressions; with or without articles; translations written the same way) and the same difficulty.",
           "The learner's request, if there is one, narrows what to add within the deck; it does not replace the deck's theme. With no request, add the next most useful items that fit.",
           "Never repeat a card the deck already has, nor a near-duplicate of one (another inflection of the same word, or the same meaning reworded). Reuse the deck's tags where they fit.",
         ]
@@ -121,41 +168,55 @@ export function buildCardRequest({
   ].join(" ");
 
   const request = prompt.trim();
-  const lines: string[] = [];
+  const avoidLine = (words: string[], where: string) =>
+    `The learner already has these${where}, so do not include them:\n${words.join(", ")}`;
+
+  let context: string | null;
+  const ask: string[] = [];
   if (deck) {
-    lines.push(`Create exactly ${count} new flashcards for the deck "${deck.path.join("::")}".`);
-    if (deck.description?.trim()) lines.push(`Deck description: ${deck.description.trim()}`);
-    if (deck.sourcePrompt?.trim() && deck.sourcePrompt.trim() !== deck.description?.trim()) {
-      lines.push(`The deck was first generated from: ${deck.sourcePrompt.trim()}`);
-    }
-    lines.push(
-      deck.cards.length > 0
-        ? `Cards already in the deck (target — source [tags]), none of which may be repeated:\n${deck.cards
-            .map((c) => `${c.target} — ${c.source}${c.tags.length > 0 ? ` [${c.tags.join(", ")}]` : ""}`)
-            .join("\n")}`
-        : "The deck has no cards yet: go by its name and description.",
-    );
-    lines.push(request ? `The learner's request: ${request}` : "The learner gave no further request.");
+    context = describeDeck(deck);
+    if (others.length > 0) ask.push(avoidLine(others, " in other decks"));
+    ask.push(`Create exactly ${count} new flashcards for this deck.`);
+    ask.push(request ? `The learner's request: ${request}` : "The learner gave no further request.");
   } else {
-    lines.push(`Create exactly ${count} flashcards for this request: ${request}`);
-  }
-  if (others.length > 0) {
-    lines.push(
-      `The learner already has these${deck ? " in other decks" : ""}, so do not include them:\n${others.join(", ")}`,
-    );
+    context = others.length > 0 ? avoidLine(others, "") : null;
+    ask.push(`Create exactly ${count} flashcards for this request: ${request}`);
   }
 
-  return { instructions, prompt: lines.join("\n"), avoid: [...deckTargets, ...others] };
+  const messages: ModelMessage[] = [
+    {
+      role: "user",
+      content: [
+        ...(context ? [{ type: "text" as const, text: context, providerOptions: CACHE_BREAKPOINT }] : []),
+        { type: "text" as const, text: ask.join("\n") },
+      ],
+    },
+  ];
+
+  return {
+    /** generateObject's options, bar the model. */
+    call: {
+      schema: deck ? deckAdditionBatch : newDeckBatch,
+      instructions,
+      messages,
+      maxOutputTokens: cardOutputTokens(count),
+      maxRetries: MAX_RETRIES,
+      // Picking and writing a handful of words is simple: low effort, little thinking.
+      providerOptions: anthropicOptions("low"),
+    },
+    avoid: [...deckTargets, ...others],
+  };
 }
 
 export async function generateCards(input: GenerateCardsInput): Promise<GeneratedCardBatch> {
   assertAiCredentials();
-  const { instructions, prompt } = buildCardRequest(input);
-  const { object } = await generateObject({
-    model: getModel(),
-    schema: cardBatch,
-    instructions,
-    prompt,
-  });
+  const { call } = buildCardRequest(input);
+  const { object } = await loggedCall("cards", () => generateObject({ model: getModel(), ...call }));
+  if (object.cards.length === 0) {
+    throw new Error("The model returned no cards. Try again, or reword the request.");
+  }
+  if (object.cards.length < input.count) {
+    console.warn(`[ai] cards: asked for ${input.count}, got ${object.cards.length}`);
+  }
   return object;
 }

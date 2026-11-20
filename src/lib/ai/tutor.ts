@@ -1,5 +1,6 @@
 import { streamText, type ModelMessage } from "ai";
 import { assertAiCredentials, getModel } from "./model";
+import { logUsage, MAX_RETRIES } from "./call";
 import { getLanguage } from "../languages";
 import type { CefrLevel } from "@/generated/prisma/enums";
 
@@ -74,9 +75,17 @@ export function streamTutorReply({
     { role: "user" as const, content: question },
   ];
 
+  const started = Date.now();
   return streamText({
     model: getModel(),
+    maxRetries: MAX_RETRIES,
     instructions: instructionsFor(card),
     messages,
+    onEnd: (event) =>
+      logUsage(
+        "tutor",
+        { usage: event.totalUsage, finishReason: event.finishReason, response: event.response },
+        Date.now() - started,
+      ),
   });
 }

@@ -2,12 +2,13 @@
 // learner's own language. The AI SDK is mocked, nothing is called.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ModelMessage } from "ai";
 
-const calls: { instructions?: string; prompt?: string }[] = [];
+const calls: { instructions?: string; messages?: ModelMessage[] }[] = [];
 let reply: string[] = [];
 
 vi.mock("ai", () => ({
-  generateObject: vi.fn(async (options: { instructions?: string; prompt?: string }) => {
+  generateObject: vi.fn(async (options: { instructions?: string; messages?: ModelMessage[] }) => {
     calls.push(options);
     return { object: { suggestions: reply } };
   }),
@@ -33,30 +34,47 @@ beforeEach(() => {
   reply = [];
 });
 
+type Part = { type: string; text: string; providerOptions?: unknown };
+const partsOf = (messages: ModelMessage[]) => messages[0].content as Part[];
+
 describe("buildSuggestionRequest", () => {
-  it("shows the model the deck's path, description and cards", () => {
-    const { prompt, instructions } = buildSuggestionRequest({
+  it("shows the model the deck, then the ask, with no cache write", () => {
+    const call = buildSuggestionRequest({
       targetLanguage: "sv",
       sourceLanguage: "en",
       level: "A2",
       deck: ADJECTIVES,
     });
-    expect(prompt).toContain('The deck: "Swedish::Adjectives"');
-    expect(prompt).toContain("Description: Common adjectives");
-    expect(prompt).toContain("First generated from: common Swedish adjectives");
-    expect(prompt).toContain("stor — big\nliten — small");
-    expect(instructions).toContain("fit the deck's theme and word class");
-    expect(instructions).toContain("doesn't cover yet");
+    expect(call.messages).toHaveLength(1);
+    const [deck, ask] = partsOf(call.messages);
+    // Chips are cached on the deck; a prompt-cache write would rarely be read.
+    expect(deck.providerOptions).toBeUndefined();
+    expect(deck.text).toContain('The deck: "Swedish::Adjectives"');
+    expect(deck.text).toContain("Description: Common adjectives");
+    expect(deck.text).toContain("First generated from: common Swedish adjectives");
+    expect(deck.text).toContain("stor — big [adjectives]\nliten — small");
+    expect(ask.providerOptions).toBeUndefined();
+    expect(ask.text).toContain("Suggest 4 requests");
+    expect(call.instructions).toContain("fit the deck's theme and word class");
+    expect(call.instructions).toContain("doesn't cover yet");
+  });
+
+  it("is a small low-effort call through native structured output", () => {
+    const call = buildSuggestionRequest({ targetLanguage: "sv", sourceLanguage: "en", level: "A2", deck: ADJECTIVES });
+    expect(call.providerOptions).toEqual({ anthropic: { structuredOutputMode: "outputFormat", effort: "low" } });
+    expect(call).not.toHaveProperty("temperature");
+    expect(call.maxOutputTokens).toBe(2_000);
+    expect(call.maxRetries).toBe(2);
   });
 
   it("goes by the name when the deck is empty", () => {
-    const { prompt } = buildSuggestionRequest({
+    const call = buildSuggestionRequest({
       targetLanguage: "sv",
       sourceLanguage: "en",
       level: "A2",
       deck: { path: ["Verbs"], cards: [] },
     });
-    expect(prompt).toContain("It has no cards yet");
+    expect(partsOf(call.messages)[0].text).toContain("The deck has no cards yet");
   });
 });
 
@@ -73,10 +91,10 @@ describe.each([
       deck: ADJECTIVES,
     });
     expect(chips).toEqual(["cores", "sentimentos"]);
-    const { instructions = "", prompt = "" } = calls[0];
+    const { instructions = "" } = calls[0];
     expect(instructions).toContain(`learning ${learner.target} who speaks ${learner.source}`);
+    expect(instructions).toContain(`grow a ${learner.target} flashcard deck`);
     expect(instructions).toContain(`Write the suggestions in ${learner.source}, the learner's own language`);
-    expect(prompt).toContain(`(${learner.target} — ${learner.source})`);
   });
 });
 

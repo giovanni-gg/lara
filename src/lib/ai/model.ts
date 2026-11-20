@@ -8,7 +8,9 @@ import type { LanguageModel } from "ai";
  * AI SDK a plain "provider/model" string, which routes through the Vercel AI
  * Gateway — the path that needs no per-provider wiring once deployed.
  */
-const MODEL_ID = "claude-opus-5";
+// Opus 5.5: always thinks (depth set per call with `effort`, see ./call.ts)
+// and rejects sampling parameters, thinking budgets and forced tool choice.
+export const MODEL_ID = "claude-opus-5-5";
 
 export function getModel(): LanguageModel {
   const apiKey = process.env.ANTHROPIC_API_KEY;

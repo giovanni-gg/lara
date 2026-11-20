@@ -1,8 +1,9 @@
-import { generateObject } from "ai";
+import { generateObject, type ModelMessage } from "ai";
 import { z } from "zod";
 import { assertAiCredentials, getModel } from "./model";
+import { anthropicOptions, loggedCall, MAX_RETRIES } from "./call";
+import { describeDeck, type DeckContext } from "./cards";
 import { getLanguage } from "../languages";
-import type { DeckContext } from "./cards";
 import type { CefrLevel } from "@/generated/prisma/enums";
 
 /**
@@ -31,10 +32,12 @@ export type SuggestDeckInput = {
   deck: DeckContext;
 };
 
-export function buildSuggestionRequest({ targetLanguage, sourceLanguage, level, deck }: SuggestDeckInput): {
-  instructions: string;
-  prompt: string;
-} {
+/**
+ * Everything one suggestion call sends, without calling the model: fixed
+ * instructions, then the deck (the same compact form card generation uses),
+ * then the ask.
+ */
+export function buildSuggestionRequest({ targetLanguage, sourceLanguage, level, deck }: SuggestDeckInput) {
   const target = getLanguage(targetLanguage).name;
   const source = getLanguage(sourceLanguage).name;
 
@@ -43,21 +46,31 @@ export function buildSuggestionRequest({ targetLanguage, sourceLanguage, level, 
     `Suggest ${SUGGESTION_COUNT} short requests they could make for the next cards in this deck.`,
     "Each must fit the deck's theme and word class exactly (in a deck of adjectives, kinds of adjectives) and point at something the deck doesn't cover yet. Make them different from each other.",
     `Write the suggestions in ${source}, the learner's own language: 1-4 words each, lowercase, no numbering or punctuation.`,
+    "Leave out the word class the deck already implies: in a deck of adjectives say \"colours\", not \"colour adjectives\".",
   ].join(" ");
 
-  const lines = [`The deck: "${deck.path.join("::")}".`];
-  if (deck.description?.trim()) lines.push(`Description: ${deck.description.trim()}`);
-  if (deck.sourcePrompt?.trim() && deck.sourcePrompt.trim() !== deck.description?.trim()) {
-    lines.push(`First generated from: ${deck.sourcePrompt.trim()}`);
-  }
-  const shown = deck.cards.slice(0, CARDS_SHOWN);
-  lines.push(
-    shown.length > 0
-      ? `Its cards so far (${target} — ${source}):\n${shown.map((c) => `${c.target} — ${c.source}`).join("\n")}`
-      : "It has no cards yet: go by its name.",
-  );
+  // No prompt-cache breakpoint here: the chips are cached on the deck, so the
+  // same prompt practically never comes back within the cache's 5 minutes,
+  // and a cache write costs more than plain input.
+  const messages: ModelMessage[] = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: describeDeck({ ...deck, cards: deck.cards.slice(0, CARDS_SHOWN) }) },
+        { type: "text", text: `Suggest ${SUGGESTION_COUNT} requests for the next cards in this deck.` },
+      ],
+    },
+  ];
 
-  return { instructions, prompt: lines.join("\n") };
+  return {
+    schema: suggestionList,
+    instructions,
+    messages,
+    // A few words of JSON plus low-effort thinking.
+    maxOutputTokens: 2_000,
+    maxRetries: MAX_RETRIES,
+    providerOptions: anthropicOptions("low"),
+  };
 }
 
 /** Cached chips are rewritten once the deck's card count has moved this far. */
@@ -84,12 +97,7 @@ export function tidySuggestions(raw: string[]): string[] {
 
 export async function suggestForDeck(input: SuggestDeckInput): Promise<string[]> {
   assertAiCredentials();
-  const { instructions, prompt } = buildSuggestionRequest(input);
-  const { object } = await generateObject({
-    model: getModel(),
-    schema: suggestionList,
-    instructions,
-    prompt,
-  });
+  const call = buildSuggestionRequest(input);
+  const { object } = await loggedCall("suggestions", () => generateObject({ model: getModel(), ...call }));
   return tidySuggestions(object.suggestions);
 }

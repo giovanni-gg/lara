@@ -80,6 +80,18 @@ See `README.md` for what it is and how to run it.
   (`npm run speak:setup`). Change the agent there, never in the ElevenLabs
   dashboard, and re-run the script. Its primary language must not be English:
   the platform then insists on the English-only Flash v2 TTS.
+- **The model is Claude Opus 5.5 (`src/lib/ai/model.ts`); every call uses
+  `src/lib/ai/call.ts`.** It always thinks (depth via `effort`; cards and
+  chips use `"low"`) and answers 400 to temperature/top_p/top_k, a thinking
+  budget, forced tool choice and assistant prefill, so never pass those.
+  Structured output must go through `structuredOutputMode: "outputFormat"`
+  (`anthropicOptions()`): the fallback is a forced tool call. `loggedCall`
+  logs one `[ai]` usage line per call and turns refusals and cut-offs into
+  readable errors.
+- **Adding cards to a deck shows the model the deck** (`loadDeckContext`:
+  path, description, cards across the subtree), so new cards fit it. The
+  deck page's chips come from `/api/decks/[deckId]/suggestions`, cached on
+  `Deck.suggestions` and rewritten once the subtree's card count moves by 5.
 - **TTS is content-hash cached** in `.media/`. Re-synthesising identical text is
   free, so don't add your own caching layer around it.
 - **A card's facing is its own `cardType`, not the deck's.** RECOGNITION shows

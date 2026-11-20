@@ -1,21 +1,40 @@
 // Adding cards to an existing deck must give cards that belong in it: the
 // model sees the deck's path, description and cards, and never repeats them.
-// The prompt is built by a pure function; the AI SDK is mocked, nothing is called.
+// The request is built by a pure function; the AI SDK is mocked, nothing is called.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ModelMessage } from "ai";
 
-const calls: { instructions?: string; prompt?: string }[] = [];
+type Call = { instructions?: string; messages?: ModelMessage[]; [key: string]: unknown };
+const calls: Call[] = [];
+let reply: { cards: unknown[] } = { cards: [] };
 
 vi.mock("ai", () => ({
-  generateObject: vi.fn(async (options: { instructions?: string; prompt?: string }) => {
+  generateObject: vi.fn(async (options: Call) => {
     calls.push(options);
-    return { object: { deckName: "x", emoji: "x", cards: [] } };
+    return {
+      object: reply,
+      usage: { inputTokens: 1, outputTokens: 1, inputTokenDetails: {}, outputTokenDetails: {} },
+      finishReason: "stop",
+      response: { modelId: "mock-model" },
+    };
   }),
 }));
 vi.mock("./model", () => ({ getModel: () => "mock-model", assertAiCredentials: () => {} }));
 
-const { buildCardRequest, generateCards } = await import("./cards");
+const { buildCardRequest, generateCards, newDeckBatch, deckAdditionBatch, cardOutputTokens } = await import(
+  "./cards"
+);
 type GenerateCardsInput = Parameters<typeof buildCardRequest>[0];
+
+const card = (target: string) => ({
+  target,
+  source: target,
+  targetSentence: "",
+  sourceSentence: "",
+  notes: "",
+  tags: [],
+});
 
 const ADJECTIVES = {
   path: ["Swedish", "Adjectives"],
@@ -25,6 +44,10 @@ const ADJECTIVES = {
     { target: "stor", source: "big", tags: ["adjectives"] },
     { target: "liten", source: "small", tags: ["adjectives", "size"] },
     { target: "snabb", source: "fast", tags: [] },
+    { target: "långsam", source: "slow", tags: [] },
+    { target: "varm", source: "warm", tags: [] },
+    { target: "kall", source: "cold", tags: ["weather"] },
+    { target: "ny", source: "new", tags: [] },
   ],
 };
 
@@ -37,44 +60,75 @@ const base: GenerateCardsInput = {
   existingTargets: [],
 };
 
+/** The user message's text parts, in order. */
+function parts(messages: ModelMessage[]) {
+  expect(messages).toHaveLength(1);
+  const [message] = messages;
+  expect(message.role).toBe("user");
+  return (message.content as { type: string; text: string; providerOptions?: unknown }[]).map((p) => ({
+    text: p.text,
+    cached: p.providerOptions !== undefined,
+    providerOptions: p.providerOptions,
+  }));
+}
+
 beforeEach(() => {
   calls.length = 0;
+  reply = { cards: [card("glad")] };
 });
 
 describe("buildCardRequest with a deck", () => {
-  it("shows the model the deck's path, description, origin and cards", () => {
-    const { prompt } = buildCardRequest({ ...base, deck: ADJECTIVES });
-    expect(prompt).toContain('Create exactly 5 new flashcards for the deck "Swedish::Adjectives"');
-    expect(prompt).toContain("Deck description: Common adjectives");
-    expect(prompt).toContain("first generated from: common Swedish adjectives");
-    expect(prompt).toContain("stor — big [adjectives]");
-    expect(prompt).toContain("liten — small [adjectives, size]");
-    expect(prompt).toContain("snabb — fast");
+  it("puts the deck in a cached context part and the ask after it", () => {
+    const { call } = buildCardRequest({ ...base, prompt: "colours", deck: ADJECTIVES });
+    const [context, ask] = parts(call.messages);
+    expect(context.providerOptions).toEqual({ anthropic: { cacheControl: { type: "ephemeral" } } });
+    expect(ask.cached).toBe(false);
+
+    expect(context.text).toContain('The deck: "Swedish::Adjectives"');
+    expect(context.text).toContain("Description: Common adjectives");
+    expect(context.text).toContain("First generated from: common Swedish adjectives");
+    // The volatile parts stay out of the cached prefix.
+    expect(context.text).not.toContain("colours");
+    expect(context.text).not.toContain("Create exactly");
+    expect(ask.text).toContain("Create exactly 5 new flashcards for this deck.");
+    expect(ask.text).toContain("The learner's request: colours");
+  });
+
+  it("shows five example cards in full and the rest as bare words", () => {
+    const { call } = buildCardRequest({ ...base, deck: ADJECTIVES });
+    const [context] = parts(call.messages);
+    expect(context.text).toContain("stor — big [adjectives]");
+    expect(context.text).toContain("liten — small [adjectives, size]");
+    expect(context.text).toContain("varm — warm");
+    expect(context.text).toContain("Every other word already in the deck:\nkall, ny");
+    expect(context.text).not.toContain("cold");
+    expect(context.text).not.toContain("[weather]");
   });
 
   it("tells the model to match the deck's theme, word class and format", () => {
-    const { instructions } = buildCardRequest({ ...base, deck: ADJECTIVES });
-    expect(instructions).toContain("adding cards to an existing deck");
-    expect(instructions).toContain("same word class");
-    expect(instructions).toContain("same format");
-    expect(instructions).toContain("Never repeat a card the deck already has");
+    const { call } = buildCardRequest({ ...base, deck: ADJECTIVES });
+    expect(call.instructions).toContain("adding cards to an existing deck");
+    expect(call.instructions).toContain("same word class");
+    expect(call.instructions).toContain("same format as the example cards");
+    expect(call.instructions).toContain("Never repeat a card the deck already has");
+    expect(call.instructions).toContain("does not replace the deck's theme");
   });
 
   it("works with an empty prompt", () => {
-    const { prompt } = buildCardRequest({ ...base, prompt: "  ", deck: ADJECTIVES });
-    expect(prompt).toContain("The learner gave no further request.");
-    expect(prompt).not.toContain("this request:");
+    const { call } = buildCardRequest({ ...base, prompt: "  ", deck: ADJECTIVES });
+    const [, ask] = parts(call.messages);
+    expect(ask.text).toContain("The learner gave no further request.");
+    expect(ask.text).not.toContain("this request:");
   });
 
-  it("treats the prompt as a refinement within the deck", () => {
-    const { prompt, instructions } = buildCardRequest({ ...base, prompt: "colours", deck: ADJECTIVES });
-    expect(prompt).toContain("The learner's request: colours");
-    expect(instructions).toContain("does not replace the deck's theme");
+  it("asks for cards only, without a deck name or emoji", () => {
+    expect(buildCardRequest({ ...base, deck: ADJECTIVES }).call.schema).toBe(deckAdditionBatch);
+    expect(Object.keys(deckAdditionBatch.shape)).toEqual(["cards"]);
   });
 
   it("puts the deck's own cards in the avoid list, ahead of the learner's others", () => {
     const others = Array.from({ length: 400 }, (_, i) => `ord ${i}`);
-    const { avoid, prompt } = buildCardRequest({
+    const { avoid, call } = buildCardRequest({
       ...base,
       existingTargets: ["Stor", "springa", ...others],
       deck: ADJECTIVES,
@@ -84,28 +138,71 @@ describe("buildCardRequest with a deck", () => {
     expect(avoid).toContain("springa");
     // "Stor" is already the deck's "stor": listed once, not again among the others.
     expect(avoid.filter((w) => w.toLowerCase() === "stor")).toHaveLength(1);
-    expect(avoid).toHaveLength(3 + 300);
-    expect(prompt).toContain("already has these in other decks, so do not include them:\nspringa, ord 0");
+    expect(avoid).toHaveLength(ADJECTIVES.cards.length + 300);
+    const [, ask] = parts(call.messages);
+    expect(ask.text).toContain("already has these in other decks, so do not include them:\nspringa, ord 0");
   });
 
   it("handles an empty deck by its name", () => {
-    const { prompt } = buildCardRequest({ ...base, deck: { path: ["Verbs"], cards: [] } });
-    expect(prompt).toContain('for the deck "Verbs"');
-    expect(prompt).toContain("The deck has no cards yet");
+    const { call } = buildCardRequest({ ...base, deck: { path: ["Verbs"], cards: [] } });
+    const [context] = parts(call.messages);
+    expect(context.text).toContain('The deck: "Verbs"');
+    expect(context.text).toContain("The deck has no cards yet");
   });
 });
 
 describe("buildCardRequest without a deck", () => {
-  it("is the plain new-deck request", () => {
-    const { prompt, instructions, avoid } = buildCardRequest({
-      ...base,
-      prompt: "food",
-      existingTargets: ["äpple"],
-    });
-    expect(prompt).toContain("Create exactly 5 flashcards for this request: food");
-    expect(prompt).toContain("The learner already has these, so do not include them:\näpple");
-    expect(instructions).not.toContain("existing deck");
+  it("is the new-deck request, naming the deck too", () => {
+    const { call, avoid } = buildCardRequest({ ...base, prompt: "food", existingTargets: ["äpple"] });
+    const [context, ask] = parts(call.messages);
+    expect(context.text).toBe("The learner already has these, so do not include them:\näpple");
+    expect(context.cached).toBe(true);
+    expect(ask.text).toBe("Create exactly 5 flashcards for this request: food");
+    expect(call.instructions).not.toContain("existing deck");
+    expect(call.schema).toBe(newDeckBatch);
     expect(avoid).toEqual(["äpple"]);
+  });
+
+  it("has just the ask when the learner has no cards yet", () => {
+    const { call } = buildCardRequest({ ...base, prompt: "food" });
+    expect(parts(call.messages).map((p) => p.cached)).toEqual([false]);
+  });
+});
+
+describe("the call itself", () => {
+  it("is low effort through native structured output, with no sampling or thinking settings", () => {
+    const { call } = buildCardRequest({ ...base, deck: ADJECTIVES });
+    expect(call.providerOptions).toEqual({ anthropic: { structuredOutputMode: "outputFormat", effort: "low" } });
+    expect(call).not.toHaveProperty("temperature");
+    expect(call).not.toHaveProperty("topP");
+    expect(call).not.toHaveProperty("topK");
+    expect(JSON.stringify(call.providerOptions)).not.toMatch(/thinking|budget/i);
+    expect(call.maxRetries).toBe(2);
+  });
+
+  it("budgets output for the count, with room for thinking", () => {
+    expect(buildCardRequest({ ...base, count: 5 }).call.maxOutputTokens).toBe(cardOutputTokens(5));
+    expect(cardOutputTokens(40)).toBeGreaterThan(cardOutputTokens(5));
+    expect(cardOutputTokens(5)).toBeGreaterThanOrEqual(4_000 + 5 * 150);
+  });
+
+  it("is what generateCards sends", async () => {
+    await generateCards({ ...base, prompt: "food" });
+    const { call } = buildCardRequest({ ...base, prompt: "food" });
+    expect(calls[0]).toEqual({ model: "mock-model", ...call });
+  });
+});
+
+describe("generateCards results", () => {
+  it("returns a short batch as is", async () => {
+    reply = { cards: [card("glad"), card("ledsen")] };
+    const batch = await generateCards({ ...base, deck: ADJECTIVES });
+    expect(batch.cards.map((c) => c.target)).toEqual(["glad", "ledsen"]);
+  });
+
+  it("reports an empty batch as an error", async () => {
+    reply = { cards: [] };
+    await expect(generateCards({ ...base, deck: ADJECTIVES })).rejects.toThrow("returned no cards");
   });
 });
 
@@ -120,13 +217,14 @@ describe.each([
       sourceLanguage: learner.sourceLanguage,
       deck: { path: ["Adjetivos"], cards: [{ target: "grande", source: "stor", tags: [] }] },
     });
-    const { instructions = "", prompt = "" } = calls[0];
+    const { instructions = "", messages = [] } = calls[0];
     expect(instructions).toContain(`learning ${learner.target} who speaks ${learner.source}`);
     expect(instructions).toContain(`"target" and "targetSentence" are in ${learner.target}`);
     expect(instructions).toContain(
       `"source", "sourceSentence", "notes" and the deck title are in ${learner.source}`,
     );
-    expect(prompt).toContain('for the deck "Adjetivos"');
-    expect(prompt).toContain("grande — stor");
+    const [context] = parts(messages);
+    expect(context.text).toContain('The deck: "Adjetivos"');
+    expect(context.text).toContain("grande — stor");
   });
 });

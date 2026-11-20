@@ -111,8 +111,8 @@ export async function POST(request: Request) {
       data: {
         userId: user.id,
         profileId: profile.id,
-        name: batch.deckName,
-        emoji: batch.emoji,
+        name: batch.deckName || "New deck",
+        emoji: batch.emoji || null,
         description: prompt,
         sourcePrompt: prompt,
         direction: requested ?? "RECOGNITION",
