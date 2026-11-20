@@ -166,3 +166,104 @@ body {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* ------------------------------------------------------------------
+   Landing page (/login). One orchestrated moment: the hero rises in once,
+   then its study card keeps turning over (äpple, then apple) while the
+   answer buttons wake and Good is pressed. Everything is fully visible
+   without these animations; reduced motion switches them all off.
+   ------------------------------------------------------------------ */
+@keyframes landing-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.landing-rise {
+  animation: landing-rise 700ms cubic-bezier(0.2, 0.8, 0.2, 1) var(--rise-delay, 0ms) both;
+}
+
+/* One 9s loop shared by the card, the buttons and the press, so they agree:
+   front until 30%, turned by 38%, Good pressed at ~70%, back round by 90%. */
+.landing-card {
+  transform-style: preserve-3d;
+  animation: landing-card-turn 9s cubic-bezier(0.65, 0, 0.35, 1) 1.4s infinite;
+}
+@keyframes landing-card-turn {
+  0%,
+  30% {
+    transform: rotateY(0deg);
+  }
+  38%,
+  82% {
+    transform: rotateY(180deg);
+  }
+  90%,
+  100% {
+    transform: rotateY(360deg);
+  }
+}
+.landing-ratings {
+  animation: landing-ratings 9s ease 1.4s infinite both;
+}
+@keyframes landing-ratings {
+  0%,
+  33% {
+    opacity: 0.35;
+  }
+  40%,
+  82% {
+    opacity: 1;
+  }
+  88%,
+  100% {
+    opacity: 0.35;
+  }
+}
+.landing-press {
+  animation: landing-press 9s ease 1.4s infinite;
+}
+@keyframes landing-press {
+  0%,
+  66% {
+    transform: none;
+    filter: none;
+  }
+  70% {
+    transform: scale(0.93);
+    filter: brightness(1.15);
+  }
+  74%,
+  82% {
+    transform: none;
+    filter: brightness(1.15);
+  }
+  86%,
+  100% {
+    transform: none;
+    filter: none;
+  }
+}
+
+/* The forgetting curve draws as it scrolls into view where the browser can
+   tie animations to scroll; elsewhere it draws on load like on How Lara works. */
+@supports (animation-timeline: view()) {
+  .landing-curve .curve-draw {
+    animation-timeline: view();
+    animation-range: entry 10% cover 45%;
+    animation-delay: 0s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-rise,
+  .landing-card,
+  .landing-ratings,
+  .landing-press {
+    animation: none;
+  }
+}
