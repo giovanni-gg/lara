@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { prisma } from "./db";
 import { FsrsState } from "@/generated/prisma/enums";
 import { Prisma } from "@/generated/prisma/client";
@@ -8,6 +9,7 @@ import {
   previewIntervals,
   startOfStudyDay,
   type RatingValue,
+  type SchedulingState,
 } from "./srs";
 import { deckOrder, groupByDeck } from "./study-order";
 
@@ -124,33 +126,38 @@ export async function buildQueue({
     select: { id: true, parentId: true },
   });
 
-  return groupByDeck(due, fresh, deckOrder(decks)).map((card) => {
-    const previews = previewIntervals(card, now);
-    return {
-      id: card.id,
-      target: card.target,
-      source: card.source,
-      targetSentence: card.targetSentence,
-      sourceSentence: card.sourceSentence,
-      notes: card.notes,
-      cardType: card.cardType,
-      audioUrl: card.audioUrl,
-      sentenceAudioUrl: card.sentenceAudioUrl,
-      imageUrl: card.imageUrl,
-      state: card.state,
-      deckId: card.deckId,
-      deckTitle: card.deck.name,
-      deckName: card.deck.parent
-        ? `${card.deck.parent.name} · ${card.deck.name}`
-        : card.deck.name,
-      intervals: {
-        1: describeInterval(previews[1], now),
-        2: describeInterval(previews[2], now),
-        3: describeInterval(previews[3], now),
-        4: describeInterval(previews[4], now),
-      },
-    };
-  });
+  return groupByDeck(due, fresh, deckOrder(decks)).map((card) => toQueueCard(card, now));
+}
+
+type CardRow = Prisma.CardGetPayload<{ select: typeof CARD_SELECT }>;
+
+/** A card row as the study session shows it, with its answer buttons labelled. */
+function toQueueCard(card: CardRow, now: Date): QueueCard {
+  const previews = previewIntervals(card, now);
+  return {
+    id: card.id,
+    target: card.target,
+    source: card.source,
+    targetSentence: card.targetSentence,
+    sourceSentence: card.sourceSentence,
+    notes: card.notes,
+    cardType: card.cardType,
+    audioUrl: card.audioUrl,
+    sentenceAudioUrl: card.sentenceAudioUrl,
+    imageUrl: card.imageUrl,
+    state: card.state,
+    deckId: card.deckId,
+    deckTitle: card.deck.name,
+    deckName: card.deck.parent
+      ? `${card.deck.parent.name} · ${card.deck.name}`
+      : card.deck.name,
+    intervals: {
+      1: describeInterval(previews[1], now),
+      2: describeInterval(previews[2], now),
+      3: describeInterval(previews[3], now),
+      4: describeInterval(previews[4], now),
+    },
+  };
 }
 
 /**
@@ -212,7 +219,44 @@ export function describeInterval(due: Date, now = new Date()): string {
   return `${(days / 365).toFixed(1)}y`;
 }
 
-/** Record an answer: update the card's schedule and append to the review log. */
+/**
+ * What `Review.previousState` holds: the card's scheduling fields just before
+ * the answer, and the tags the answer added. JSON, so dates are ISO strings.
+ */
+const previousStateSchema = z.object({
+  state: z.enum(FsrsState),
+  due: z.coerce.date(),
+  stability: z.number(),
+  difficulty: z.number(),
+  elapsedDays: z.number().int(),
+  scheduledDays: z.number().int(),
+  reps: z.number().int(),
+  lapses: z.number().int(),
+  learningSteps: z.number().int(),
+  lastReview: z.coerce.date().nullable(),
+  addedTags: z.array(z.string()),
+});
+
+function snapshot(card: SchedulingState, addedTags: string[]): Prisma.InputJsonObject {
+  return {
+    state: card.state,
+    due: card.due.toISOString(),
+    stability: card.stability,
+    difficulty: card.difficulty,
+    elapsedDays: card.elapsedDays,
+    scheduledDays: card.scheduledDays,
+    reps: card.reps,
+    lapses: card.lapses,
+    learningSteps: card.learningSteps,
+    lastReview: card.lastReview?.toISOString() ?? null,
+    addedTags,
+  };
+}
+
+/**
+ * Record an answer: update the card's schedule and append to the review log.
+ * The review keeps the card's prior schedule so `undoReview` can take it back.
+ */
 export async function submitReview({
   userId,
   cardId,
@@ -233,10 +277,8 @@ export async function submitReview({
 
   // Anki's leech handling, tag-only: flag cards that keep lapsing so they can
   // be rewritten, without pulling them out of rotation.
-  const tags =
-    isLeechMilestone(next.lapses, card.lapses) && !card.tags.includes("leech")
-      ? [...card.tags, "leech"]
-      : card.tags;
+  const addedTags =
+    isLeechMilestone(next.lapses, card.lapses) && !card.tags.includes("leech") ? ["leech"] : [];
 
   // Walking away mid-card shouldn't log a ten-minute answer.
   const cappedDuration =
@@ -244,14 +286,114 @@ export async function submitReview({
       ? undefined
       : Math.min(durationMs, SCHEDULER_SETTINGS.maxAnswerSeconds * 1000);
 
-  const [updated] = await prisma.$transaction([
-    prisma.card.update({ where: { id: card.id }, data: { ...next, tags } }),
+  const [updated, review] = await prisma.$transaction([
+    prisma.card.update({
+      where: { id: card.id },
+      data: { ...next, tags: [...card.tags, ...addedTags] },
+    }),
     prisma.review.create({
-      data: { cardId: card.id, userId, durationMs: cappedDuration, reviewedAt: now, ...log },
+      data: {
+        cardId: card.id,
+        userId,
+        durationMs: cappedDuration,
+        reviewedAt: now,
+        previousState: snapshot(card, addedTags),
+        ...log,
+      },
+      select: { id: true },
     }),
   ]);
 
-  return updated;
+  return { card: updated, reviewId: review.id };
+}
+
+/** Why an answer can't be taken back: 404 (no such review of yours) or 409. */
+export class UndoError extends Error {
+  constructor(
+    message: string,
+    readonly status: 404 | 409,
+  ) {
+    super(message);
+    this.name = "UndoError";
+  }
+}
+
+/**
+ * Take back an answer made in Lara: delete its review and put the card's
+ * schedule (and any tag the answer added, like "leech") back exactly as it
+ * was. Only the card's latest review can be undone, only while the card still
+ * holds the schedule that review gave it, and never one imported from Anki.
+ * Returns the card as the study session shows it.
+ */
+export async function undoReview({
+  userId,
+  reviewId,
+  now = new Date(),
+}: {
+  userId: string;
+  reviewId: string;
+  now?: Date;
+}): Promise<QueueCard> {
+  const review = await prisma.review.findFirst({ where: { id: reviewId, userId } });
+  if (!review) throw new UndoError("Review not found", 404);
+  if (review.ankiId !== null) throw new UndoError("Reviews imported from Anki can't be undone", 409);
+  const previous = previousStateSchema.safeParse(review.previousState);
+  if (!previous.success) throw new UndoError("This review can't be undone", 409);
+
+  const latest = await prisma.review.findFirst({
+    where: { cardId: review.cardId },
+    orderBy: [{ reviewedAt: "desc" }, { id: "desc" }],
+    select: { id: true },
+  });
+  if (latest?.id !== review.id) {
+    throw new UndoError("Only the card's latest answer can be undone", 409);
+  }
+
+  const card = await prisma.card.findFirst({
+    where: { id: review.cardId, userId },
+    select: { state: true, due: true, tags: true },
+  });
+  if (!card) throw new UndoError("Card not found", 404);
+  if (card.state !== review.state || card.due.getTime() !== review.due.getTime()) {
+    throw new UndoError("The card has changed since this answer", 409);
+  }
+
+  const { addedTags, ...schedule } = previous.data;
+  try {
+    // Delete first: if a concurrent undo got there already, this throws and
+    // the transaction leaves the card alone.
+    const [, restored] = await prisma.$transaction([
+      prisma.review.delete({ where: { id: review.id } }),
+      prisma.card.update({
+        where: { id: review.cardId },
+        data: { ...schedule, tags: card.tags.filter((tag) => !addedTags.includes(tag)) },
+        select: CARD_SELECT,
+      }),
+    ]);
+    return toQueueCard(restored, now);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      throw new UndoError("Review not found", 404);
+    }
+    throw error;
+  }
+}
+
+/** Pause (suspend) or resume one of the user's cards. False if it isn't theirs. */
+export async function setCardSuspended({
+  userId,
+  cardId,
+  suspended,
+}: {
+  userId: string;
+  cardId: string;
+  suspended: boolean;
+}): Promise<boolean> {
+  const { count } = await prisma.card.updateMany({
+    where: { id: cardId, userId },
+    data: { suspended },
+  });
+  return count > 0;
 }
 
 export type DeckStats = {

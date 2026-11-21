@@ -318,6 +318,12 @@ model Review {
   durationMs Int? // time spent on the card
   reviewedAt DateTime @default(now())
 
+  /// The card's scheduling fields just before this answer, so the study
+  /// screen can undo it exactly (`undoReview` in src/lib/study.ts), plus any
+  /// tags it added (`addedTags`, e.g. "leech"). Null on Anki-imported reviews
+  /// and on reviews made before undo existed; those can't be undone.
+  previousState Json?
+
   /// Anki revlog id for history imported from Anki; null for reviews done in
   /// Lara. The importer uses this to refuse wiping Lara-native progress.
   /// Unique per user only: Anki revlog ids are millisecond timestamps, and two

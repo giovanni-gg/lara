@@ -28,12 +28,14 @@ export async function POST(request: Request) {
   const now = new Date();
 
   try {
-    const card = await submitReview({ userId: user.id, cardId, rating, durationMs, now });
+    const { card, reviewId } = await submitReview({ userId: user.id, cardId, rating, durationMs, now });
     // The card's new schedule, labelled like buildQueue's, so a session can
     // show a still-learning card again with fresh answer-button intervals.
     const previews = previewIntervals(card, now);
     return NextResponse.json({
       ok: true,
+      // What the session sends to /api/reviews/undo to take this answer back.
+      reviewId,
       card: {
         id: card.id,
         state: card.state,

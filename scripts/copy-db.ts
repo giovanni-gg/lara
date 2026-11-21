@@ -109,7 +109,15 @@ async function main() {
     await write("profiles", profiles, (data) => target.languageProfile.createMany({ data }));
     await write("decks", orderedDecks, (data) => target.deck.createMany({ data }));
     await write("cards", cards, (data) => target.card.createMany({ data }));
-    await write("reviews", reviews, (data) => target.review.createMany({ data }));
+    await write("reviews", reviews, (data) =>
+      target.review.createMany({
+        // A read JSON null can't be written back as-is; leaving it out is null.
+        data: data.map(({ previousState, ...review }) => ({
+          ...review,
+          previousState: previousState ?? undefined,
+        })),
+      }),
+    );
     await write("tutor messages", messages, (data) => target.cardChatMessage.createMany({ data }));
     await write("articles", articles, (data) => target.article.createMany({ data }));
     await write("article segments", segments, (data) => target.articleSegment.createMany({ data }));
