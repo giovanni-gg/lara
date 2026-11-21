@@ -12,6 +12,8 @@ import { cardLimitMessage, cardsPerWord } from "./limits";
 import {
   CARD_JOB_STALE_AFTER_MS,
   cardJobLimitReached,
+  DECK_BUSY_ERROR,
+  deckJobRunning,
   IN_PROGRESS_STATUSES,
   MAX_CARD_JOBS_IN_PROGRESS,
   STALE_ERROR,
@@ -36,7 +38,7 @@ import { CardJobStatus, CardType, type CardDirection, type CefrLevel } from "@/g
 export class CardJobInputError extends Error {
   constructor(
     message: string,
-    readonly status: 400 | 404 | 429 = 400,
+    readonly status: 400 | 404 | 409 | 429 = 400,
   ) {
     super(message);
     this.name = "CardJobInputError";
@@ -117,8 +119,11 @@ export async function queueCardJob(input: CardJobInput, now: Date = new Date()):
 
   const running = await prisma.cardJob.findMany({
     where: { userId, status: { in: [...IN_PROGRESS_STATUSES] } },
-    select: { status: true, createdAt: true },
+    select: { status: true, createdAt: true, deckId: true },
   });
+  // One batch per deck at a time: a second would write against the same
+  // cards and race the first for duplicates. Other decks are unaffected.
+  if (deck && deckJobRunning(running, deck.id, now)) throw new CardJobInputError(DECK_BUSY_ERROR, 409);
   if (cardJobLimitReached(running, now)) {
     throw new CardJobInputError(
       `${MAX_CARD_JOBS_IN_PROGRESS} batches of cards are already being made — wait for one to finish.`,

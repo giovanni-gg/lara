@@ -12,7 +12,6 @@ import { cardsLeftToday } from "@/lib/allowance";
 import { archiveDeck, moveDeck, unarchiveDeck, updateDeckNewCardsPerDay } from "@/app/actions";
 import { GenerateDeckForm } from "@/components/generate-deck-form";
 import { usualDirection } from "@/lib/card-direction";
-import { DeckJobStatus } from "@/components/card-jobs";
 import { CardRow } from "@/components/card-row";
 import { DeckTree } from "@/components/deck-tree";
 import { Button, ButtonLink, Panel, Screen, Stat } from "@/components/ui";
@@ -134,9 +133,6 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
         </div>
       </header>
 
-      {/* AI cards being added here: "Writing 5 cards…", then "5 new cards added". */}
-      <DeckJobStatus deckId={deck.id} className="mb-3" />
-
       {deck.archivedAt ? (
         <div className="mb-3 flex items-center gap-2 rounded-xl border border-line bg-raised px-3 py-2 text-sm">
           <Archive className="size-4 shrink-0 text-muted" aria-hidden />
@@ -184,6 +180,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
 
       <section className="mt-6">
         <h2 className="mb-2 font-display text-base font-semibold">Add cards</h2>
+        {/* While AI cards are being added here, this box is their progress view. */}
         <GenerateDeckForm
           deckId={deck.id}
           deckName={deck.name}
@@ -193,8 +190,6 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
           picturesAvailable={imagesAvailable()}
           cardsLeft={cardsLeft}
         />
-        {/* The same status again, next to the form it was started from. */}
-        <DeckJobStatus deckId={deck.id} onlyAnnounced className="mt-2" />
         <ButtonLink
           href={`/decks/${deck.id}/cards/new`}
           variant="secondary"
