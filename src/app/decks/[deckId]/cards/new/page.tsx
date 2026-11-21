@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getLanguage } from "@/lib/languages";
 import { createCard } from "@/app/actions";
 import { DirectionPicker } from "@/components/direction-picker";
+import { usualDirection } from "@/lib/card-direction";
 import { imagesAvailable } from "@/lib/images";
 import { Button, Field, Screen, inputStyles } from "@/components/ui";
 
@@ -25,6 +26,14 @@ export default async function NewCardPage({
     },
   });
   if (!deck) notFound();
+
+  // Default to the face this deck mostly uses (a deck of picture cards → Picture first).
+  const defaultDirection = usualDirection(
+    (
+      await prisma.card.groupBy({ by: ["cardType"], where: { deckId: deck.id }, _count: { _all: true } })
+    ).map((g) => ({ cardType: g.cardType, count: g._count._all })),
+    deck.direction,
+  );
 
   const target = getLanguage(deck.profile.targetLanguage).name;
   const source = getLanguage(deck.profile.sourceLanguage).name;
@@ -84,7 +93,7 @@ export default async function NewCardPage({
           <DirectionPicker
             target={target}
             source={source}
-            defaultValue={deck.direction}
+            defaultValue={defaultDirection}
             picturesAvailable={imagesAvailable()}
           />
         </div>

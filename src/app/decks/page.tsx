@@ -26,6 +26,8 @@ export default async function DecksPage() {
     nodes.reduce((n, node) => n + 1 + count(node.children), 0);
   const due = roots.reduce((n, r) => n + r.total.due, 0);
   const fresh = roots.reduce((n, r) => n + r.total.newToday, 0);
+  // Every new card not seen yet, across all decks (the tile shows today's share).
+  const unseen = roots.reduce((n, r) => n + r.total.fresh, 0);
   const decks = count(roots);
 
   // Archived decks are listed by everything they hold — the study counts above
@@ -69,7 +71,7 @@ export default async function DecksPage() {
       {/* The day at a glance, then the one button that matters. */}
       <div className="flex gap-2">
         <Stat value={due} label="Due" tone={due > 0 ? "accent" : "default"} />
-        <Stat value={fresh} label="New" />
+        <Stat value={fresh} label={unseen > 0 ? `New (${unseen})` : "New"} />
         <Stat value={stats.reviewedToday} label="Done" tone="good" />
       </div>
       <div className="mt-3 mb-5">

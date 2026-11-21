@@ -68,6 +68,7 @@ function DeckTreeItem({
           <span className="flex min-w-0 flex-1 items-center" style={indent}>
             <span className="w-6 shrink-0" aria-hidden />
             <span className="truncate">{node.name}</span>
+            <Unseen count={node.total.fresh} />
           </span>
           <Counts stats={node.total} />
         </Link>
@@ -93,6 +94,7 @@ function DeckTreeItem({
               <Link href={`/decks/${node.id}`} className="truncate">
                 {node.name}
               </Link>
+              <Unseen count={node.total.fresh} />
             </span>
             <Counts stats={node.total} />
           </span>
@@ -111,6 +113,16 @@ function DeckTreeItem({
         </ul>
       </details>
     </li>
+  );
+}
+
+/** All the new cards a deck still holds (not just today's allowance), e.g. "(120)". */
+function Unseen({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span className="ml-1.5 shrink-0 text-xs text-muted tabular-nums" title={`${count} new cards not seen yet`}>
+      ({count})
+    </span>
   );
 }
 

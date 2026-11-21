@@ -11,6 +11,7 @@ import { imagesAvailable } from "@/lib/images";
 import { cardsLeftToday } from "@/lib/allowance";
 import { archiveDeck, moveDeck, unarchiveDeck, updateDeckNewCardsPerDay } from "@/app/actions";
 import { GenerateDeckForm } from "@/components/generate-deck-form";
+import { usualDirection } from "@/lib/card-direction";
 import { DeckJobStatus } from "@/components/card-jobs";
 import { CardRow } from "@/components/card-row";
 import { DeckTree } from "@/components/deck-tree";
@@ -65,6 +66,13 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
     }),
   ]);
   const cardsLeft = await cardsLeftToday(user);
+  // New cards default to the face this deck mostly uses (sequential: an aggregate).
+  const defaultDirection = usualDirection(
+    (
+      await prisma.card.groupBy({ by: ["cardType"], where: { deckId: deck.id }, _count: { _all: true } })
+    ).map((g) => ({ cardType: g.cardType, count: g._count._all })),
+    deck.direction,
+  );
 
   const node = byId.get(deck.id);
   const stats = node?.total ?? EMPTY_DECK_STATS;
@@ -181,7 +189,7 @@ export default async function DeckPage({ params }: PageProps<"/decks/[deckId]">)
           deckName={deck.name}
           targetName={target.name}
           sourceName={source.name}
-          defaultDirection={deck.direction}
+          defaultDirection={defaultDirection}
           picturesAvailable={imagesAvailable()}
           cardsLeft={cardsLeft}
         />
