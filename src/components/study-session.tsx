@@ -468,7 +468,7 @@ export function StudySession({
       </p>
     ) : lostChanges > 0 ? (
       <p role="status" className="text-center text-xs text-again">
-        {lostChanges} {lostChanges === 1 ? "undo or pause" : "undos or pauses"} couldn&apos;t be saved
+        {lostChanges} {lostChanges === 1 ? "undo or suspend" : "undos or suspends"} couldn&apos;t be saved
       </p>
     ) : null;
 
@@ -875,10 +875,10 @@ function CardMenu({
               className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm active:bg-raised"
             >
               <CirclePause className="size-4 text-muted" aria-hidden />
-              Pause card
+              Suspend card
             </button>
             <p className="px-3 pb-2 text-xs leading-snug text-muted">
-              Skips it from now on. Resume it from its deck.
+              Skips it from now on. Unsuspend it from its deck's card list.
             </p>
           </div>
         </>

@@ -64,7 +64,7 @@ export function CardRow({
             </p>
           </div>
           {card.suspended ? (
-            <Badge className="border-again/40 text-again">paused</Badge>
+            <Badge className="border-again/40 text-again">suspended</Badge>
           ) : card.state === "NEW" ? (
             <Badge>new</Badge>
           ) : (
@@ -107,7 +107,7 @@ export function CardRow({
                 type="submit"
                 className="rounded-lg border border-line px-3 py-1.5 text-xs text-muted"
               >
-                {card.suspended ? "Resume" : "Pause"}
+                {card.suspended ? "Unsuspend" : "Suspend"}
               </button>
             </form>
             <form
