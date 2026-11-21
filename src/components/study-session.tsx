@@ -418,7 +418,8 @@ export function StudySession({
     }
 
     setIndex(step.index);
-    setRevealed(step.revealed);
+    // Like Anki: the card comes back question side up, to be answered afresh.
+    setRevealed(false);
     setContinuedTo(step.continuedTo);
     shownAt.current = Date.now();
   }, [history, enqueue]);
