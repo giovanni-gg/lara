@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowDown, Check } from "lucide-react";
 import { Button } from "@/components/ui";
+import { UndoButton } from "@/components/undo-button";
 
 const cards = (n: number) => `${n} ${n === 1 ? "card" : "cards"}`;
 
@@ -16,15 +17,22 @@ export function DeckTransition({
   next,
   nextCount,
   onContinue,
+  onUndo,
 }: {
   finished: string;
   finishedCount: number;
   next: string;
   nextCount: number;
   onContinue: () => void;
+  /** Takes back the finished deck's last answer, returning to that card. */
+  onUndo?: () => void;
 }) {
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col px-6 pt-safe pb-safe">
+      {/* Top-left, as on the card screen. */}
+      <div className="-mx-3 flex h-13 items-center">
+        {onUndo ? <UndoButton onUndo={onUndo} /> : null}
+      </div>
       <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
         <div className="flex flex-col items-center gap-2" role="status">
           <span className="deck-done-pop flex size-11 items-center justify-center rounded-full bg-good/15 text-good">

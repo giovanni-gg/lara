@@ -23,7 +23,7 @@ describe("submitReview", () => {
   it("updates the card and appends one review row", async () => {
     const { user, card } = await reviewCard();
 
-    const updated = await submitReview({ userId: user.id, cardId: card.id, rating: RATINGS.GOOD, durationMs: 4200, now: NOW });
+    const { card: updated } = await submitReview({ userId: user.id, cardId: card.id, rating: RATINGS.GOOD, durationMs: 4200, now: NOW });
 
     expect(updated).toMatchObject({ state: FsrsState.REVIEW, reps: card.reps + 1, lastReview: NOW });
     const reviews = await prisma.review.findMany({ where: { cardId: card.id } });
@@ -42,7 +42,7 @@ describe("submitReview", () => {
   it("puts a review-state due date on a 04:00 study-day boundary", async () => {
     const { user, card } = await reviewCard();
 
-    const updated = await submitReview({ userId: user.id, cardId: card.id, rating: RATINGS.GOOD, now: NOW });
+    const { card: updated } = await submitReview({ userId: user.id, cardId: card.id, rating: RATINGS.GOOD, now: NOW });
 
     expect(updated.due > NOW).toBe(true);
     expect([updated.due.getHours(), updated.due.getMinutes(), updated.due.getSeconds(), updated.due.getMilliseconds()]).toEqual([
@@ -56,7 +56,7 @@ describe("submitReview", () => {
   it("tags a card as a leech on its 8th lapse, without suspending it or dropping its tags", async () => {
     const { user, card } = await reviewCard({ lapses: 7, tags: ["verb"] });
 
-    const updated = await submitReview({ userId: user.id, cardId: card.id, rating: RATINGS.AGAIN, now: NOW });
+    const { card: updated } = await submitReview({ userId: user.id, cardId: card.id, rating: RATINGS.AGAIN, now: NOW });
 
     expect(updated.lapses).toBe(8);
     expect(updated.tags).toEqual(["verb", "leech"]);
@@ -65,7 +65,7 @@ describe("submitReview", () => {
 
   it("doesn't tag before the threshold", async () => {
     const { user, card } = await reviewCard({ lapses: 6 });
-    const updated = await submitReview({ userId: user.id, cardId: card.id, rating: RATINGS.AGAIN, now: NOW });
+    const { card: updated } = await submitReview({ userId: user.id, cardId: card.id, rating: RATINGS.AGAIN, now: NOW });
     expect(updated.lapses).toBe(7);
     expect(updated.tags).toEqual([]);
   });
