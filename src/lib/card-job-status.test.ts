@@ -4,6 +4,7 @@ import {
   cardJobLimitReached,
   cardJobPhase,
   cardJobText,
+  deckJobRunning,
   isStaleCardJob,
   STALE_ERROR,
   toCardJobView,
@@ -106,5 +107,28 @@ describe("cardJobLimitReached", () => {
     expect(
       cardJobLimitReached([timing("WRITING"), timing("AUDIO"), timing("DONE"), timing("FAILED"), stale], now),
     ).toBe(false);
+  });
+});
+
+describe("deckJobRunning", () => {
+  const timing = (deckId: string | null, status: CardJobStatus = "WRITING", msAgo = 1000) => ({
+    deckId,
+    status,
+    createdAt: ago(msAgo),
+  });
+
+  it("is true while a job is adding to that deck", () => {
+    for (const status of ["QUEUED", "WRITING", "AUDIO", "PICTURES"] as const) {
+      expect(deckJobRunning([timing("deck", status)], "deck", now)).toBe(true);
+    }
+  });
+
+  it("ignores other decks and new-deck jobs", () => {
+    expect(deckJobRunning([timing("other"), timing(null)], "deck", now)).toBe(false);
+  });
+
+  it("frees the deck once its job finishes, fails or goes stale", () => {
+    const jobs = [timing("deck", "DONE"), timing("deck", "FAILED"), timing("deck", "AUDIO", CARD_JOB_STALE_AFTER_MS + 1)];
+    expect(deckJobRunning(jobs, "deck", now)).toBe(false);
   });
 });

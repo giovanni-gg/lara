@@ -31,6 +31,21 @@ export function isStaleCardJob(job: JobTiming, now: Date = new Date()): boolean 
   );
 }
 
+/** Why a second batch for the same deck is refused (409). */
+export const DECK_BUSY_ERROR = "Cards are already being created for this deck.";
+
+/**
+ * True while a job is still adding cards to this deck: one batch per deck at
+ * a time. Stale and finished jobs don't hold it; nor do other decks' jobs.
+ */
+export function deckJobRunning(
+  jobs: (JobTiming & { deckId: string | null })[],
+  deckId: string,
+  now: Date = new Date(),
+): boolean {
+  return jobs.some((job) => job.deckId === deckId && cardJobPhase(job, now) === "running");
+}
+
 export type CardJobPhase = "running" | "done" | "failed";
 
 export function cardJobPhase(job: JobTiming, now: Date = new Date()): CardJobPhase {

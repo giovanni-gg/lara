@@ -8,8 +8,6 @@ import type { CardJobView } from "./card-job-status";
 export type WatchedCardJob = CardJobView & {
   /** First seen before the model had named its new deck (deckId null). */
   newDeck: boolean;
-  /** Queued from a form on this page, so it also shows under that form. */
-  announced: boolean;
 };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -30,6 +28,16 @@ export function inlineCardJobText(job: Pick<CardJobView, "phase" | "status" | "c
 /** The jobs adding to this deck (its own, not its subdecks'), oldest first. */
 export function jobsForDeck<T extends Pick<CardJobView, "deckId">>(jobs: T[], deckId: string): T[] {
   return jobs.filter((job) => job.deckId === deckId);
+}
+
+/**
+ * The job a deck's "Add cards" box shows in place of its form: one still
+ * running, else the latest finished one (until it's dismissed). Null means
+ * show the form. The deck's own jobs only, like jobsForDeck.
+ */
+export function addCardsBoxJob<T extends Pick<CardJobView, "deckId" | "phase">>(jobs: T[], deckId: string): T | null {
+  const own = jobsForDeck(jobs, deckId);
+  return own.find((job) => job.phase === "running") ?? own.at(-1) ?? null;
 }
 
 /**

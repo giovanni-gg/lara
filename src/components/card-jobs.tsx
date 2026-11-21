@@ -49,7 +49,8 @@ export function onCardJobFinished(callback: (deckId: string | null) => void): ()
  * /api/card-jobs every 2 s only while a job it knows of is running, and
  * refreshes the page when one finishes or its new deck gets a name, so the
  * server-rendered counts and rows catch up. The status itself is drawn
- * inline, where the deck is: DeckJobStatus, DeckRowJobs, NewDeckJobRows.
+ * inline, where the deck is: the deck page's "Add cards" box
+ * (generate-deck-form.tsx), DeckRowJobs and NewDeckJobRows in the list.
  *
  * Shows a job only once it has seen it in progress, so a reload doesn't
  * replay old results.
@@ -84,11 +85,7 @@ export function CardJobsProvider({ children }: { children: ReactNode }) {
           // The model named the new deck: its row can appear.
           refresh = true;
         }
-        const job: WatchedCardJob = {
-          ...view,
-          newDeck: last?.newDeck ?? !view.deckId,
-          announced: last?.announced ?? false,
-        };
+        const job: WatchedCardJob = { ...view, newDeck: last?.newDeck ?? !view.deckId };
         watched.current.set(view.id, job);
         next.push(job);
       }
@@ -100,7 +97,7 @@ export function CardJobsProvider({ children }: { children: ReactNode }) {
   );
 
   const announce = useCallback((view: CardJobView) => {
-    const job: WatchedCardJob = { ...view, newDeck: !view.deckId, announced: true };
+    const job: WatchedCardJob = { ...view, newDeck: !view.deckId };
     watched.current.set(view.id, job);
     setJobs((current) => [...current.filter((j) => j.id !== view.id), job]);
     setPolling(true);
@@ -167,32 +164,6 @@ async function fetchJobs(): Promise<CardJobView[] | null> {
   } catch {
     return null;
   }
-}
-
-/**
- * A deck's own jobs, full width: at the top of the deck page, and under its
- * "Add cards" form (`onlyAnnounced`: just what that form queued).
- */
-export function DeckJobStatus({
-  deckId,
-  onlyAnnounced = false,
-  className,
-}: {
-  deckId: string;
-  onlyAnnounced?: boolean;
-  className?: string;
-}) {
-  const api = useCardJobs();
-  if (!api) return null;
-  const jobs = jobsForDeck(api.jobs, deckId).filter((job) => !onlyAnnounced || job.announced);
-  if (jobs.length === 0) return null;
-  return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
-      {jobs.map((job) => (
-        <JobLine key={job.id} job={job} text={inlineCardJobText(job)} api={api} />
-      ))}
-    </div>
-  );
 }
 
 /** A small line under a deck's name in the deck list. `indent` lines it up with the name. */

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { inlineCardJobText, jobsForDeck, newDeckJobs, newDeckJobText, type WatchedCardJob } from "./card-job-inline";
+import {
+  addCardsBoxJob,
+  inlineCardJobText,
+  jobsForDeck,
+  newDeckJobs,
+  newDeckJobText,
+  type WatchedCardJob,
+} from "./card-job-inline";
 import { toCardJobView, type CardJobFields } from "./card-job-status";
 
 const now = new Date("2026-11-20T12:00:00Z");
@@ -20,7 +27,7 @@ function job(overrides: Partial<CardJobFields> = {}, watch: Partial<WatchedCardJ
     error: null,
     ...overrides,
   };
-  return { ...toCardJobView(fields, now), newDeck: false, announced: false, ...watch };
+  return { ...toCardJobView(fields, now), newDeck: false, ...watch };
 }
 
 describe("inlineCardJobText", () => {
@@ -49,6 +56,32 @@ describe("jobsForDeck", () => {
   it("keeps the deck's own jobs only", () => {
     const jobs = [job({ id: "a" }), job({ id: "b", deckId: "other" }), job({ id: "c", deckId: null })];
     expect(jobsForDeck(jobs, "deck").map((j) => j.id)).toEqual(["a"]);
+  });
+});
+
+describe("addCardsBoxJob", () => {
+  it("shows the form when the deck has no job of its own", () => {
+    expect(addCardsBoxJob([], "deck")).toBeNull();
+    expect(addCardsBoxJob([job({ deckId: "other" }), job({ deckId: null })], "deck")).toBeNull();
+  });
+
+  it("prefers a running job over an older or newer finished one", () => {
+    const jobs = [
+      job({ id: "old", status: "DONE", created: 5 }),
+      job({ id: "running", status: "AUDIO" }),
+      job({ id: "failed", status: "FAILED", error: "No AI" }),
+    ];
+    expect(addCardsBoxJob(jobs, "deck")?.id).toBe("running");
+  });
+
+  it("keeps the latest finished job up until it's dismissed", () => {
+    const jobs = [job({ id: "a", status: "FAILED", error: "No AI" }), job({ id: "b", status: "DONE", created: 5 })];
+    expect(addCardsBoxJob(jobs, "deck")?.id).toBe("b");
+  });
+
+  it("treats a lost (stale) job as finished, so the form can come back", () => {
+    const lost = job({ id: "lost", status: "WRITING", createdAt: new Date(now.getTime() - 60 * 60_000) });
+    expect(addCardsBoxJob([lost], "deck")).toMatchObject({ id: "lost", phase: "failed" });
   });
 });
 

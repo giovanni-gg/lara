@@ -10,7 +10,7 @@ import { POST } from "@/app/api/decks/generate/route";
 import { GET } from "@/app/api/card-jobs/route";
 import { generateCards } from "@/lib/ai/cards";
 import { trySynthesize, ttsAvailable } from "@/lib/tts";
-import { CARD_JOB_STALE_AFTER_MS, STALE_ERROR, type CardJobView } from "@/lib/card-job-status";
+import { CARD_JOB_STALE_AFTER_MS, DECK_BUSY_ERROR, STALE_ERROR, type CardJobView } from "@/lib/card-job-status";
 import { createCardJob, createDeck, createProfile, createUser } from "../factories";
 import { settleAfter } from "./stubs/next-server";
 
@@ -195,6 +195,67 @@ describe("POST /api/decks/generate queues a job", () => {
     const res = await generate({ count: 3, deckId: theirs.id });
     expect(res.status).toBe(404);
     expect(await prisma.cardJob.count()).toBe(0);
+  });
+});
+
+describe("one batch per deck at a time", () => {
+  it("refuses a second batch for a deck while one runs (409), and frees it once that finishes", async () => {
+    const user = await createUser();
+    const profile = await createProfile(user);
+    const deck = await createDeck(profile, { name: "Adjectives" });
+
+    const first = await generate({ count: 3, deckId: deck.id });
+    expect(first.status).toBe(202);
+
+    const second = await generate({ count: 3, deckId: deck.id });
+    expect(second.status).toBe(409);
+    expect((await second.json()).error).toBe(DECK_BUSY_ERROR);
+    expect(await prisma.cardJob.count()).toBe(1);
+
+    await settleAfter();
+    expect(generateCards).toHaveBeenCalledTimes(1);
+    expect(await prisma.cardJob.findFirstOrThrow()).toMatchObject({ status: "DONE" });
+
+    const third = await generate({ prompt: "colours", count: 3, deckId: deck.id });
+    expect(third.status).toBe(202);
+  });
+
+  it("still lets other decks, and new decks, start their own", async () => {
+    const user = await createUser();
+    const profile = await createProfile(user);
+    const busy = await createDeck(profile, { name: "Busy" });
+    const other = await createDeck(profile, { name: "Other" });
+    await createCardJob(profile, { status: "AUDIO", deckId: busy.id, deckName: busy.name });
+
+    expect((await generate({ count: 3, deckId: other.id })).status).toBe(202);
+    expect((await generate({ prompt: "feelings", count: 3 })).status).toBe(202);
+    expect((await generate({ count: 3, deckId: busy.id })).status).toBe(409);
+  });
+
+  it("doesn't let a new-deck job without a deck yet block anything", async () => {
+    const user = await createUser();
+    const profile = await createProfile(user);
+    const deck = await createDeck(profile);
+    await createCardJob(profile, { status: "WRITING", deckId: null });
+
+    expect((await generate({ count: 3, deckId: deck.id })).status).toBe(202);
+  });
+
+  it("frees a deck whose job failed or was lost", async () => {
+    const user = await createUser();
+    const profile = await createProfile(user);
+    const failed = await createDeck(profile, { name: "Failed" });
+    const lost = await createDeck(profile, { name: "Lost" });
+    await createCardJob(profile, { status: "FAILED", deckId: failed.id });
+    const long = new Date(Date.now() - CARD_JOB_STALE_AFTER_MS - 60_000);
+    const stale = await createCardJob(profile, { status: "PICTURES", deckId: lost.id, createdAt: long });
+
+    expect((await generate({ count: 3, deckId: failed.id })).status).toBe(202);
+    expect((await generate({ count: 3, deckId: lost.id })).status).toBe(202);
+    expect(await prisma.cardJob.findUniqueOrThrow({ where: { id: stale.id } })).toMatchObject({
+      status: "FAILED",
+      error: STALE_ERROR,
+    });
   });
 });
 
