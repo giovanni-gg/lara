@@ -878,7 +878,7 @@ function CardMenu({
               Suspend card
             </button>
             <p className="px-3 pb-2 text-xs leading-snug text-muted">
-              Skips it from now on. Unsuspend it from its deck's card list.
+              Skips it from now on. Unsuspend it from its deck&apos;s card list.
             </p>
           </div>
         </>
