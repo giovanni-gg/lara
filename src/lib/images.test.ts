@@ -4,18 +4,20 @@ import { ART_STYLES, IMAGE_MODEL, buildImagePrompt, randomStyleIndex } from "./i
 const apple = { target: "äpple", source: "apple", targetLanguage: "sv", sourceLanguage: "en" };
 
 describe("buildImagePrompt", () => {
-  it("names the word with its translation and languages", () => {
+  it("gives the word and its meaning once, as context the model must not draw", () => {
     const prompt = buildImagePrompt(apple, 0);
-    expect(prompt).toContain('learning a new language: "äpple (apple)"');
-    expect(prompt).toContain('"äpple" is Swedish for "apple" (English)');
-    expect(prompt).toContain('the concept "äpple (apple)" in the specified art style');
+    expect(prompt).toContain('NEVER draw or write it): the Swedish word "äpple", meaning "apple" in English.');
+    // Quoted words get copied into pictures: each appears exactly once.
+    expect(prompt.split("äpple").length - 1).toBe(1);
+    expect(prompt.split('"apple"').length - 1).toBe(1);
   });
 
-  it("keeps all text out of the image", () => {
+  it("keeps all text out of the image, and says why", () => {
     const prompt = buildImagePrompt(apple, 0);
-    expect(prompt).toContain("- NO TEXT (no letters, numbers, labels, or words)");
-    expect(prompt).toContain("never write either word in the image");
-    expect(prompt).toContain("make sure to not use any text in the image");
+    expect(prompt).toContain("must work out the word from it");
+    expect(prompt).toContain("Any text in the picture gives the answer away");
+    expect(prompt).toContain("- ABSOLUTELY NO TEXT: no letters, words, names, labels, captions");
+    expect(prompt).toContain("with no text anywhere in the image");
   });
 
   it("asks for the split literal / creative layout", () => {
@@ -44,8 +46,7 @@ describe("buildImagePrompt", () => {
       { target: "maçã", source: "äpple", targetLanguage: "pt", sourceLanguage: "sv" },
       2,
     );
-    expect(prompt).toContain('"maçã (äpple)"');
-    expect(prompt).toContain('"maçã" is Portuguese for "äpple" (Swedish)');
+    expect(prompt).toContain('the Portuguese word "maçã", meaning "äpple" in Swedish.');
   });
 });
 

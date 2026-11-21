@@ -88,36 +88,43 @@ export function randomStyleIndex(): number {
 }
 
 /**
- * The anki_creator prompt, word for word, plus one line giving the model the
- * word's meaning. The Python sent only the English term; here the word and
- * its translation travel together, so "maçã (äpple)" draws an apple for Ebba.
+ * The anki_creator prompt (split literal/creative picture, six art styles),
+ * reworked so no text ever ends up in the picture: a picture card is answered
+ * from the picture alone, so a drawn word gives the answer away. Image models
+ * copy quoted words into the image, so the word appears exactly once, in a
+ * line marked as context, and every other line says "the concept".
  */
+/** Bumped when the prompt changes enough that old pictures shouldn't be reused (v2: no text at all). */
+export const PROMPT_VERSION = "v2";
+
 export function buildImagePrompt(input: CardImageInput, styleIndex: number): string {
   const style = ART_STYLES[((styleIndex % ART_STYLES.length) + ART_STYLES.length) % ART_STYLES.length];
   const target = input.target.trim();
   const source = input.source.trim();
-  const concept = `${target} (${source})`;
   const targetName = getLanguage(input.targetLanguage).name;
   const sourceName = getLanguage(input.sourceLanguage).name;
   const size = PROMPT_SIZE;
 
-  return `Generate a ${size}x${size} educational flashcard image for adults learning a new language: "${concept}"
+  return `Generate a ${size}x${size} educational picture-flashcard image for adults learning a new language.
 
-Meaning: "${target}" is ${targetName} for "${source}" (${sourceName}). This is only so you understand the concept; never write either word in the image.
+How it is used: the learner sees ONLY this picture and must work out the word from it. Any text in the picture gives the answer away and makes the card useless, so the image must contain no writing of any kind.
+
+The concept (context for you only, NEVER draw or write it): the ${targetName} word "${target}", meaning "${source}" in ${sourceName}.
 
 Art Style: ${style.description}
 
 Layout: SPLIT IMAGE with a subtle vertical divider line in the middle
-- LEFT HALF: LITERAL representation - show exactly what the word means in its most common, direct usage, isolated and centered
+- LEFT HALF: LITERAL representation - show exactly what the concept means in its most common, direct usage, isolated and centered
 - RIGHT HALF: CREATIVE/FUN representation - a wild, humorous, unexpected, or surreal interpretation of the same concept (metaphor, exaggeration, funny scenario, or artistic twist)
 
 Rules:
-- NO TEXT (no letters, numbers, labels, or words)
+- ABSOLUTELY NO TEXT: no letters, words, names, labels, captions, titles, signs, numbers, speech bubbles or writing on objects, in any language
+- Communicate the concept through objects, actions, people and expressions only
 - Clean illustration, white or simple background, high contrast
-- Both halves should clearly represent the concept "${concept}" but in different ways
+- Both halves should clearly represent the concept, in different ways
 - Square format (${size}x${size} pixels)
 
-Now generate the split image for the concept "${concept}" in the specified art style. Please, make sure to not use any text in the image and make the image as easy as possible to understand.
+Now draw the concept in the specified art style, as easy as possible to recognise from the picture alone, with no text anywhere in the image.
 `;
 }
 
@@ -164,7 +171,8 @@ export async function generateCardImage(input: CardImageInput): Promise<string |
     const key = mediaKey(
       "img",
       input.targetLanguage,
-      `${input.sourceLanguage}:${input.target.trim()}:${input.source.trim()}`,
+      // PROMPT_VERSION: pictures drawn by an older prompt aren't reused.
+      `${PROMPT_VERSION}:${input.sourceLanguage}:${input.target.trim()}:${input.source.trim()}`,
     );
     if (await exists(key, "webp")) return publicUrl(key, "webp");
 
